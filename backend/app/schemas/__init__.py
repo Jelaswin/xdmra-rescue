@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field, ConfigDict, root_validator, model_validator
 from typing import List, Optional, Any, Dict
 from datetime import datetime
-from app.models import IncidentSeverity, IncidentStatus, TeamAvailability, AllocationStatus, RouteRisk
+from app.models import IncidentSeverity, IncidentStatus, TeamAvailability, AllocationStatus, RouteRisk, LocationAccuracy, LocationSource
 
 class IncidentBase(BaseModel):
     title: str = Field(..., min_length=1)
@@ -20,6 +20,12 @@ class IncidentBase(BaseModel):
     elderly_count: int = Field(0, ge=0)
     required_skills: List[str] = Field(default_factory=list)
     required_equipment: List[str] = Field(default_factory=list)
+
+    # Phase 4 extensions
+    location_name: Optional[str] = None
+    location_accuracy: Optional[LocationAccuracy] = None
+    location_source: Optional[LocationSource] = None
+    location_notes: Optional[str] = None
 
     @model_validator(mode='after')
     def validate_people_counts(self):
@@ -136,3 +142,54 @@ class ModelInfoResponse(BaseModel):
     evaluation_metrics: Optional[Dict[str, float]] = None
     training_dataset_type: Optional[str] = None
     training_dataset_size: Optional[int] = None
+
+# Phase 4 Map and Location Schemas
+class GeocodingResult(BaseModel):
+    display_name: str
+    latitude: float
+    longitude: float
+    provider: str
+    bounding_box: Optional[List[float]] = None
+
+class IncidentLocationUpdate(BaseModel):
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    location_name: Optional[str] = None
+    location_accuracy: Optional[LocationAccuracy] = None
+    location_source: Optional[LocationSource] = None
+    location_notes: Optional[str] = None
+
+class TeamLocationUpdate(BaseModel):
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+
+class MapIncident(BaseModel):
+    id: int
+    title: str
+    incident_type: str
+    latitude: float
+    longitude: float
+    severity: IncidentSeverity
+    status: IncidentStatus
+    affected_people: int
+    priority_level: Optional[str] = None
+    ml_priority_level: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class MapTeam(BaseModel):
+    id: int
+    name: str
+    latitude: float
+    longitude: float
+    availability_status: TeamAvailability
+    capacity: int
+    current_workload: int
+    skills: List[str]
+    equipment: List[str]
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class MapOverviewResponse(BaseModel):
+    incidents: List[MapIncident]
+    teams: List[MapTeam]

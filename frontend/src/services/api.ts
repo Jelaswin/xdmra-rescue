@@ -1,4 +1,4 @@
-import { Incident, IncidentCreateRequest, DashboardSummary, RescueTeam, PriorityResult, TeamRecommendation, Allocation, MLPredictionResponse, PriorityComparisonResponse, ModelInfo } from '../types';
+import { Incident, IncidentCreateRequest, DashboardSummary, RescueTeam, PriorityResult, TeamRecommendation, Allocation, MLPredictionResponse, PriorityComparisonResponse, ModelInfo, GeocodingResult, MapOverviewResponse } from '../types';
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
@@ -84,6 +84,18 @@ export const api = {
   getModelInfo: async (): Promise<ModelInfo> => {
     const response = await fetch(`${API_BASE_URL}/ml/model-info`);
     if (!response.ok) throw new Error('Failed to fetch ML model info');
+    return response.json();
+  },
+
+  searchLocations: async (query: string): Promise<GeocodingResult[]> => {
+    const response = await fetch(`${API_BASE_URL}/locations/search?q=${encodeURIComponent(query)}`);
+    if (!response.ok) throw new Error('Failed to search locations');
+    return response.json();
+  },
+  
+  getMapOverview: async (): Promise<MapOverviewResponse> => {
+    const response = await fetch(`${API_BASE_URL}/map/overview`);
+    if (!response.ok) throw new Error('Failed to fetch map overview');
     return response.json();
   }
 };

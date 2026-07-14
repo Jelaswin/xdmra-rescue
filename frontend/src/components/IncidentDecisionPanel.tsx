@@ -165,6 +165,14 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
                     {incident.status.replace('_', ' ')}
                   </span>
                 </p>
+                
+                <div className="mt-3 p-3 bg-slate-50 border border-slate-100 rounded">
+                  <p className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">Location Details</p>
+                  <p><span className="font-medium text-slate-800">Coordinates:</span> {incident.latitude.toFixed(4)}, {incident.longitude.toFixed(4)}</p>
+                  {incident.location_name && <p><span className="font-medium text-slate-800">Area/Name:</span> {incident.location_name}</p>}
+                  {incident.location_accuracy && <p><span className="font-medium text-slate-800">Accuracy:</span> <span className="capitalize">{incident.location_accuracy.replace('_', ' ')}</span></p>}
+                  {incident.location_source && <p><span className="font-medium text-slate-800">Source:</span> <span className="capitalize">{incident.location_source.replace('_', ' ')}</span></p>}
+                </div>
                 <div className="grid grid-cols-2 gap-2 mt-4">
                   <div className="bg-slate-50 p-2 rounded border border-slate-100">
                     <p className="text-xs text-slate-500">Affected</p>

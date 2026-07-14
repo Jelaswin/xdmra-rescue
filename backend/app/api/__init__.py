@@ -19,8 +19,10 @@ from app.services import (
     get_allocations_for_incident,
     get_allocation,
     priority_predictor,
-    priority_service
+    priority_service,
+    geocoding_service
 )
+from app.models import Incident, Allocation, RescueTeam
 
 router = APIRouter()
 
@@ -154,3 +156,57 @@ def predict_incident_priority_ml(incident_id: int, db: Session = Depends(get_db)
         requires_officer_review=comparison["requires_officer_review"],
         comparison_message=comparison["comparison_message"]
     )
+
+# --- Phase 4 Map and Location Endpoints ---
+
+@router.get("/locations/search", response_model=List[schemas.GeocodingResult])
+async def search_locations(q: str):
+    if not q or not q.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+    results = await geocoding_service.search_location(q)
+    return results
+
+@router.patch("/incidents/{incident_id}/location", response_model=schemas.Incident)
+def update_incident_location(incident_id: int, req: schemas.IncidentLocationUpdate, db: Session = Depends(get_db)):
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+        
+    incident.latitude = req.latitude
+    incident.longitude = req.longitude
+    if req.location_name is not None:
+        incident.location_name = req.location_name
+    if req.location_accuracy is not None:
+        incident.location_accuracy = req.location_accuracy
+    if req.location_source is not None:
+        incident.location_source = req.location_source
+    if req.location_notes is not None:
+        incident.location_notes = req.location_notes
+        
+    db.commit()
+    db.refresh(incident)
+    return incident
+
+@router.patch("/teams/{team_id}/location", response_model=schemas.RescueTeam)
+def update_team_location(team_id: int, req: schemas.TeamLocationUpdate, db: Session = Depends(get_db)):
+    team = db.query(RescueTeam).filter(RescueTeam.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+        
+    team.latitude = req.latitude
+    team.longitude = req.longitude
+    team.updated_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    db.refresh(team)
+    return team
+
+@router.get("/map/overview", response_model=schemas.MapOverviewResponse)
+def get_map_overview(db: Session = Depends(get_db)):
+    incidents = db.query(Incident).filter(
+        Incident.status.in_(["reported", "verified", "assigned", "in_progress"])
+    ).all()
+    
+    teams = db.query(RescueTeam).all()
+    
+    return schemas.MapOverviewResponse(incidents=incidents, teams=teams)
