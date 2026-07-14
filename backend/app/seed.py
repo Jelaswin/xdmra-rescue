@@ -1,19 +1,23 @@
 from sqlalchemy.orm import Session
-from app.models import Incident, RescueTeam, RouteCondition, IncidentSeverity, IncidentStatus, TeamAvailability, RouteRisk
+from app.models import Incident, RescueTeam, RouteCondition, IncidentSeverity, IncidentStatus, TeamAvailability, RouteRisk, LocationAccuracy, LocationSource
 
 def seed_db(db: Session):
     # Check if we already seeded to ensure idempotency
     if db.query(Incident).count() > 0 or db.query(RescueTeam).count() > 0:
         return
 
-    # Seed Incidents
+    # Seed Incidents (Demonstration Data - Coimbatore Region)
     incidents = [
         Incident(
-            title="Downtown Flash Flood",
-            description="Major street flooding causing vehicles to be stranded.",
+            title="Ukkadam Flash Flood",
+            description="Major street flooding causing vehicles to be stranded near Ukkadam Lake.",
             incident_type="Flood",
-            latitude=34.0522,
-            longitude=-118.2437,
+            latitude=10.9925,
+            longitude=76.9600,
+            location_name="Ukkadam, Coimbatore",
+            location_accuracy=LocationAccuracy.approximate_area,
+            location_source=LocationSource.map_click,
+            location_notes="Demonstration data",
             severity=IncidentSeverity.critical,
             affected_people=150,
             injured_people=5,
@@ -26,11 +30,15 @@ def seed_db(db: Session):
             status=IncidentStatus.reported
         ),
         Incident(
-            title="River Bank Overflow",
-            description="River levels exceeded safe limits, threatening residential areas.",
+            title="Noyyal River Overflow",
+            description="River levels exceeded safe limits, threatening residential areas along the bank.",
             incident_type="Flood",
-            latitude=34.0622,
-            longitude=-118.2537,
+            latitude=10.9950,
+            longitude=76.9750,
+            location_name="Noyyal River Bank",
+            location_accuracy=LocationAccuracy.approximate_area,
+            location_source=LocationSource.imported_report,
+            location_notes="Demonstration data",
             severity=IncidentSeverity.high,
             affected_people=300,
             injured_people=0,
@@ -43,11 +51,15 @@ def seed_db(db: Session):
             status=IncidentStatus.verified
         ),
         Incident(
-            title="Subway Station Flooding",
-            description="Water rapidly filling the underground station.",
-            incident_type="Flood",
-            latitude=34.0422,
-            longitude=-118.2337,
+            title="Karunya Nagar Landslide",
+            description="Mudslide blocking main access road near Karunya Institute.",
+            incident_type="Landslide",
+            latitude=10.9378,
+            longitude=76.7455,
+            location_name="Karunya Nagar",
+            location_accuracy=LocationAccuracy.exact_gps,
+            location_source=LocationSource.manual_coordinates,
+            location_notes="Demonstration data",
             severity=IncidentSeverity.critical,
             affected_people=40,
             injured_people=12,
@@ -61,12 +73,12 @@ def seed_db(db: Session):
         )
     ]
     
-    # Seed Rescue Teams
+    # Seed Rescue Teams (Demonstration Data)
     teams = [
         RescueTeam(
-            name="Alpha Water Rescue",
-            latitude=34.0122,
-            longitude=-118.2137,
+            name="CBE Disaster Response Team",
+            latitude=11.0168,
+            longitude=76.9558,
             skills=["flood_rescue", "swiftwater_rescue", "first_aid", "medical_support"],
             equipment=["boat", "ropes", "life_jackets", "medical_kit"],
             capacity=15,
@@ -74,9 +86,9 @@ def seed_db(db: Session):
             availability_status=TeamAvailability.available
         ),
         RescueTeam(
-            name="Bravo Medical Unit",
-            latitude=34.0532, # Close to downtown
-            longitude=-118.2337,
+            name="GH Medical Unit",
+            latitude=11.0016, # Near Govt Hospital Coimbatore
+            longitude=76.9723,
             skills=["medical_support", "trauma_care"],
             equipment=["ambulance", "medical_kit", "stretchers"],
             capacity=20,
@@ -84,9 +96,9 @@ def seed_db(db: Session):
             availability_status=TeamAvailability.available
         ),
         RescueTeam(
-            name="Charlie Heavy Lifting",
-            latitude=34.0322,
-            longitude=-118.2037,
+            name="Sulur Air Base Lift",
+            latitude=11.0101,
+            longitude=77.1643,
             skills=["debris_removal", "heavy_lifting"],
             equipment=["crane", "bulldozers", "pumps"],
             capacity=10,
@@ -94,9 +106,9 @@ def seed_db(db: Session):
             availability_status=TeamAvailability.assigned
         ),
         RescueTeam(
-            name="Delta Air Evac",
-            latitude=34.0822,
-            longitude=-118.2937,
+            name="Siruvani Forest Rangers",
+            latitude=10.9392,
+            longitude=76.6800,
             skills=["air_rescue", "medical_support"],
             equipment=["helicopter", "hoists", "medical_kit"],
             capacity=5,
@@ -104,9 +116,9 @@ def seed_db(db: Session):
             availability_status=TeamAvailability.available
         ),
         RescueTeam(
-            name="Echo Ground Search",
-            latitude=34.0722,
-            longitude=-118.2837,
+            name="TNFRS Station 1",
+            latitude=11.0200,
+            longitude=76.9600,
             skills=["search_and_rescue", "evacuation_coordination"],
             equipment=["radio", "transport_vehicles"],
             capacity=30,

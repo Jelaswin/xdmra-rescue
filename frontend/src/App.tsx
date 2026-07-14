@@ -6,6 +6,7 @@ import IncidentList from './components/IncidentList';
 import TeamList from './components/TeamList';
 import IncidentForm from './components/IncidentForm';
 import IncidentDecisionPanel from './components/IncidentDecisionPanel';
+import { OperationsMap } from './components/map/OperationsMap';
 
 function App() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -73,6 +74,10 @@ function App() {
         <section>
           <h2 className="text-xl font-semibold mb-4 text-slate-800 border-b pb-2">Operational Dashboard</h2>
           <DashboardCards summary={summary} />
+          
+          <div className="mt-6 h-[400px] border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+            <OperationsMap incidents={incidents} teams={teams} />
+          </div>
         </section>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

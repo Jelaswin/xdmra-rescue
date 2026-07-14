@@ -362,14 +362,14 @@ def test_blocked_route_teams_excluded():
 def test_required_skill_matching():
     # 10. Required skill matching works.
     resp = client.get("/api/incidents/1/team-recommendations")
-    # Alpha has flood_rescue and medical_support (100% match)
-    alpha = next(r for r in resp.json() if "Alpha" in r["team_name"])
+    # CBE Disaster Response Team has flood_rescue and medical_support (100% match)
+    alpha = next(r for r in resp.json() if "CBE Disaster" in r["team_name"])
     assert alpha["skill_match_percentage"] == 100.0
 
 def test_required_equipment_matching():
     # 11. Required equipment matching works.
     resp = client.get("/api/incidents/1/team-recommendations")
-    alpha = next(r for r in resp.json() if "Alpha" in r["team_name"])
+    alpha = next(r for r in resp.json() if "CBE Disaster" in r["team_name"])
     assert alpha["equipment_match_percentage"] == 100.0
 
 def test_distance_calculation():
@@ -429,6 +429,106 @@ def test_missing_incident_allocation():
     # 18. Missing incident returns 404.
     res = client.post("/api/incidents/999/allocations", json={"rescue_team_id": 1})
     assert res.status_code == 404
+
+# --- Phase 4 Map and Location Tests ---
+from unittest.mock import patch, AsyncMock
+from app.models import LocationAccuracy, LocationSource
+
+def test_location_search_empty_query():
+    res = client.get("/api/locations/search?q=")
+    assert res.status_code == 400
+
+@patch("app.api.__init__.geocoding_service.search_location", new_callable=AsyncMock)
+def test_location_search_valid(mock_search):
+    mock_search.return_value = [{"display_name": "Coimbatore", "latitude": 11.0168, "longitude": 76.9558, "provider": "nominatim"}]
+    
+    res = client.get("/api/locations/search?q=Coimbatore")
+    assert res.status_code == 200
+    assert len(res.json()) == 1
+    assert res.json()[0]["latitude"] == 11.0168
+
+@patch("app.api.__init__.geocoding_service.search_location", new_callable=AsyncMock)
+def test_location_search_failure_handled(mock_search):
+    mock_search.return_value = []
+    res = client.get("/api/locations/search?q=Unknown")
+    assert res.status_code == 200
+    assert res.json() == []
+
+def test_incident_location_update_succeeds():
+    payload = {
+        "latitude": 11.0500,
+        "longitude": 77.0000,
+        "location_name": "New Area",
+        "location_accuracy": "exact_gps",
+        "location_source": "map_click",
+        "location_notes": "Tested"
+    }
+    res = client.patch("/api/incidents/1/location", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["latitude"] == 11.0500
+    assert data["location_name"] == "New Area"
+
+def test_incident_location_invalid_latitude():
+    payload = {"latitude": 100.0, "longitude": 77.0}
+    res = client.patch("/api/incidents/1/location", json=payload)
+    assert res.status_code == 422
+
+def test_incident_location_invalid_longitude():
+    payload = {"latitude": 11.0, "longitude": 200.0}
+    res = client.patch("/api/incidents/1/location", json=payload)
+    assert res.status_code == 422
+
+def test_incident_location_missing_incident():
+    payload = {"latitude": 11.0, "longitude": 77.0}
+    res = client.patch("/api/incidents/999/location", json=payload)
+    assert res.status_code == 404
+
+def test_team_location_update_succeeds():
+    payload = {"latitude": 11.1000, "longitude": 77.1000}
+    res = client.patch("/api/teams/1/location", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["latitude"] == 11.1000
+
+def test_team_location_missing_team():
+    payload = {"latitude": 11.1000, "longitude": 77.1000}
+    res = client.patch("/api/teams/999/location", json=payload)
+    assert res.status_code == 404
+
+def test_map_overview():
+    res = client.get("/api/map/overview")
+    assert res.status_code == 200
+    data = res.json()
+    assert "incidents" in data
+    assert "teams" in data
+    assert len(data["incidents"]) > 0
+    assert len(data["teams"]) > 0
+
+def test_existing_priority_prediction_still_works():
+    res = client.post("/api/incidents/1/predict-priority-ml")
+    assert res.status_code == 200
+    assert "ml_priority" in res.json()
+
+def test_existing_recommendation_uses_updated_coordinates():
+    # Update incident to a far location
+    client.patch("/api/incidents/1/location", json={"latitude": 15.0, "longitude": 80.0})
+    res = client.get("/api/incidents/1/team-recommendations")
+    assert res.status_code == 200
+    recs = res.json()
+    # Distance should be large (e.g. > 100km) since incident is at 15.0, 80.0 and teams are around 11.0, 77.0
+    assert recs[0]["distance_km"] > 100
+
+def test_haversine_distance_changes_after_team_update():
+    # Move a team close to the incident
+    client.patch("/api/teams/1/location", json={"latitude": 10.99, "longitude": 76.96})
+    res = client.get("/api/incidents/1/team-recommendations")
+    assert res.status_code == 200
+    recs = res.json()
+    team1_rec = next((r for r in recs if r["team_id"] == 1), None)
+    assert team1_rec is not None
+    # Team 1 is now very close to the incident (10.9925, 76.96) compared to others
+    assert team1_rec["distance_km"] < 50
 
 def test_missing_team_allocation():
     # 19. Missing team returns 404.

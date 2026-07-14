@@ -35,6 +35,19 @@ class RouteRisk(str, enum.Enum):
     high = "high"
     blocked = "blocked"
 
+class LocationAccuracy(str, enum.Enum):
+    exact_gps = "exact_gps"
+    confirmed_landmark = "confirmed_landmark"
+    approximate_area = "approximate_area"
+    unknown = "unknown"
+
+class LocationSource(str, enum.Enum):
+    map_click = "map_click"
+    place_search = "place_search"
+    shared_gps = "shared_gps"
+    manual_coordinates = "manual_coordinates"
+    imported_report = "imported_report"
+
 def utcnow():
     return datetime.now(timezone.utc)
 
@@ -71,6 +84,12 @@ class Incident(Base):
     ml_predicted_at = Column(DateTime, nullable=True)
     priority_agreement_status = Column(String, nullable=True)
     requires_priority_review = Column(Integer, default=0) # bool
+
+    # Phase 4 Location fields
+    location_name = Column(String, nullable=True)
+    location_accuracy = Column(Enum(LocationAccuracy), nullable=True)
+    location_source = Column(Enum(LocationSource), nullable=True)
+    location_notes = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

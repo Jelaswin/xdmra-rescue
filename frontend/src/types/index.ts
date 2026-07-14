@@ -10,6 +10,12 @@ export interface Incident {
   injured_people: number;
   vulnerable_people: number;
   
+  // Phase 4 Location Fields
+  location_name?: string;
+  location_accuracy?: string;
+  location_source?: string;
+  location_notes?: string;
+  
   // Phase 2
   trapped_people: number;
   children_count: number;
@@ -43,6 +49,12 @@ export interface IncidentCreateRequest {
   affected_people: number;
   injured_people: number;
   vulnerable_people: number;
+  
+  // Phase 4 Location Fields
+  location_name?: string;
+  location_accuracy?: string;
+  location_source?: string;
+  location_notes?: string;
   
   // Phase 2
   trapped_people: number;
@@ -136,4 +148,42 @@ export interface PriorityComparisonResponse {
   agreement_status: string;
   requires_officer_review: boolean;
   comparison_message: string;
+}
+
+export interface GeocodingResult {
+  display_name: string;
+  latitude: number;
+  longitude: number;
+  provider: string;
+  bounding_box?: number[];
+}
+
+export interface MapIncident {
+  id: number;
+  title: string;
+  incident_type: string;
+  latitude: number;
+  longitude: number;
+  severity: string;
+  status: string;
+  affected_people: number;
+  priority_level?: string | null;
+  ml_priority_level?: string | null;
+}
+
+export interface MapTeam {
+  id: number;
+  name: string;
+  latitude: number;
+  longitude: number;
+  availability_status: string;
+  capacity: number;
+  current_workload: number;
+  skills: string[];
+  equipment: string[];
+}
+
+export interface MapOverviewResponse {
+  incidents: MapIncident[];
+  teams: MapTeam[];
 }
