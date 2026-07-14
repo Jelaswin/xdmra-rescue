@@ -116,5 +116,6 @@ Added robust supply-chain logistics to X-DMRA.
 - **Officer Approval Requirement**: No dispatch is executed without officer verification.
 - **New API Endpoints**: `/api/warehouses`, `/api/inventory`, `/api/delivery-vehicles`, `/api/relief-requests`, etc.
 - **Demonstration Data Disclaimer**: The Coimbatore seed data is for demonstration only and does not represent real government stock.
+- **Database Recreation Limitation**: The `migrate.py` script destructively drops and recreates SQLite tables, which is intended for development environments only and will cause data loss in production.
 
 See `backend/app/services/RELIEF_ALGORITHM.md` for algorithm details.
