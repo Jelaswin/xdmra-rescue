@@ -10,7 +10,12 @@ from app.services import (
     get_incidents, 
     get_incident, 
     get_teams, 
-    get_team
+    get_team,
+    process_priority_calculation,
+    get_recommendations_for_incident,
+    create_allocation,
+    get_allocations_for_incident,
+    get_allocation
 )
 
 router = APIRouter()
@@ -37,6 +42,44 @@ def read_incident(incident_id: int, db: Session = Depends(get_db)):
     if not db_incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     return db_incident
+
+@router.post("/incidents/{incident_id}/calculate-priority", response_model=schemas.PriorityResult)
+def calculate_priority(incident_id: int, db: Session = Depends(get_db)):
+    result = process_priority_calculation(db, incident_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return result
+
+@router.get("/incidents/{incident_id}/team-recommendations", response_model=List[schemas.TeamRecommendation])
+def read_recommendations(incident_id: int, db: Session = Depends(get_db)):
+    recs = get_recommendations_for_incident(db, incident_id)
+    if recs is None:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return recs
+
+@router.post("/incidents/{incident_id}/allocations", response_model=schemas.AllocationResponse, status_code=status.HTTP_201_CREATED)
+def allocate_team(incident_id: int, req: schemas.AllocationCreate, db: Session = Depends(get_db)):
+    try:
+        allocation = create_allocation(db, incident_id, req)
+        return allocation
+    except ValueError as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/incidents/{incident_id}/allocations", response_model=List[schemas.AllocationResponse])
+def read_incident_allocations(incident_id: int, db: Session = Depends(get_db)):
+    db_incident = get_incident(db, incident_id)
+    if not db_incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return get_allocations_for_incident(db, incident_id)
+
+@router.get("/allocations/{allocation_id}", response_model=schemas.AllocationResponse)
+def read_allocation(allocation_id: int, db: Session = Depends(get_db)):
+    allocation = get_allocation(db, allocation_id)
+    if not allocation:
+        raise HTTPException(status_code=404, detail="Allocation not found")
+    return allocation
 
 @router.get("/teams", response_model=List[schemas.RescueTeam])
 def read_teams(db: Session = Depends(get_db)):
