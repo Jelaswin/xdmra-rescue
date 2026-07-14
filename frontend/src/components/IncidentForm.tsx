@@ -16,6 +16,11 @@ export default function IncidentForm({ onIncidentCreated }: Props) {
     affected_people: 0,
     injured_people: 0,
     vulnerable_people: 0,
+    trapped_people: 0,
+    children_count: 0,
+    elderly_count: 0,
+    required_skills: [],
+    required_equipment: [],
   });
 
   const [loading, setLoading] = useState(false);
@@ -42,6 +47,11 @@ export default function IncidentForm({ onIncidentCreated }: Props) {
         affected_people: 0,
         injured_people: 0,
         vulnerable_people: 0,
+        trapped_people: 0,
+        children_count: 0,
+        elderly_count: 0,
+        required_skills: [],
+        required_equipment: [],
       });
       onIncidentCreated();
       
@@ -58,6 +68,14 @@ export default function IncidentForm({ onIncidentCreated }: Props) {
     setFormData(prev => ({
       ...prev,
       [name]: type === 'number' ? Number(value) : value
+    }));
+  };
+
+  const handleArrayChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value.split(',').map(s => s.trim()).filter(Boolean)
     }));
   };
 
@@ -125,13 +143,71 @@ export default function IncidentForm({ onIncidentCreated }: Props) {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Affected</label>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Affected People</label>
               <input 
-                type="number" 
-                min="0"
-                name="affected_people"
-                value={formData.affected_people}
-                onChange={handleChange}
+                type="number" min="0" name="affected_people"
+                value={formData.affected_people} onChange={handleChange}
+                className="w-full text-sm border border-slate-300 rounded px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Injured</label>
+              <input 
+                type="number" min="0" name="injured_people"
+                value={formData.injured_people} onChange={handleChange}
+                className="w-full text-sm border border-slate-300 rounded px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Trapped</label>
+              <input 
+                type="number" min="0" name="trapped_people"
+                value={formData.trapped_people} onChange={handleChange}
+                className="w-full text-sm border border-slate-300 rounded px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Children</label>
+              <input 
+                type="number" min="0" name="children_count"
+                value={formData.children_count} onChange={handleChange}
+                className="w-full text-sm border border-slate-300 rounded px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Elderly</label>
+              <input 
+                type="number" min="0" name="elderly_count"
+                value={formData.elderly_count} onChange={handleChange}
+                className="w-full text-sm border border-slate-300 rounded px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Other Vulnerable</label>
+              <input 
+                type="number" min="0" name="vulnerable_people"
+                value={formData.vulnerable_people} onChange={handleChange}
+                className="w-full text-sm border border-slate-300 rounded px-3 py-2"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Required Skills (comma-sep)</label>
+              <input 
+                type="text" name="required_skills"
+                value={formData.required_skills.join(', ')} onChange={handleArrayChange}
+                placeholder="e.g. flood_rescue, medical"
+                className="w-full text-sm border border-slate-300 rounded px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Required Equipment (comma-sep)</label>
+              <input 
+                type="text" name="required_equipment"
+                value={formData.required_equipment.join(', ')} onChange={handleArrayChange}
+                placeholder="e.g. boat, medical_kit"
                 className="w-full text-sm border border-slate-300 rounded px-3 py-2"
               />
             </div>

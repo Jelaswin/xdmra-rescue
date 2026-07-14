@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional
+from pydantic import BaseModel, Field, ConfigDict, root_validator, model_validator
+from typing import List, Optional, Any, Dict
 from datetime import datetime
 from app.models import IncidentSeverity, IncidentStatus, TeamAvailability, AllocationStatus, RouteRisk
 
@@ -13,6 +13,21 @@ class IncidentBase(BaseModel):
     affected_people: int = Field(0, ge=0)
     injured_people: int = Field(0, ge=0)
     vulnerable_people: int = Field(0, ge=0)
+    
+    # Phase 2 extensions
+    trapped_people: int = Field(0, ge=0)
+    children_count: int = Field(0, ge=0)
+    elderly_count: int = Field(0, ge=0)
+    required_skills: List[str] = Field(default_factory=list)
+    required_equipment: List[str] = Field(default_factory=list)
+
+    @model_validator(mode='after')
+    def validate_people_counts(self):
+        if self.injured_people > self.affected_people:
+            raise ValueError('injured_people cannot exceed affected_people')
+        if self.trapped_people > self.affected_people:
+            raise ValueError('trapped_people cannot exceed affected_people')
+        return self
 
 class IncidentCreate(IncidentBase):
     pass
@@ -20,6 +35,9 @@ class IncidentCreate(IncidentBase):
 class Incident(IncidentBase):
     id: int
     status: IncidentStatus
+    priority_score: Optional[float] = None
+    priority_level: Optional[str] = None
+    priority_reasons: List[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     
@@ -45,3 +63,40 @@ class DashboardSummary(BaseModel):
     critical_incidents: int
     available_teams: int
     active_allocations: int
+
+class AllocationCreate(BaseModel):
+    rescue_team_id: int
+
+class AllocationResponse(BaseModel):
+    id: int
+    incident_id: int
+    rescue_team_id: int
+    status: AllocationStatus
+    recommendation_score: Optional[float] = None
+    explanation: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class TeamRecommendation(BaseModel):
+    team_id: int
+    team_name: str
+    rank: int
+    total_score: float
+    distance_km: float
+    skill_match_percentage: float
+    equipment_match_percentage: float
+    capacity_score: float
+    distance_score: float
+    workload_score: float
+    route_risk_score: float
+    positive_reasons: List[str]
+    limitations: List[str]
+    explanation: str
+
+class PriorityResult(BaseModel):
+    priority_score: float
+    priority_level: str
+    reasons: List[str]
+    factor_breakdown: Dict[str, float]

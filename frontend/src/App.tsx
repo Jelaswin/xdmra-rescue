@@ -5,11 +5,13 @@ import DashboardCards from './components/DashboardCards';
 import IncidentList from './components/IncidentList';
 import TeamList from './components/TeamList';
 import IncidentForm from './components/IncidentForm';
+import IncidentDecisionPanel from './components/IncidentDecisionPanel';
 
 function App() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [teams, setTeams] = useState<RescueTeam[]>([]);
+  const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'error'>('checking');
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +79,7 @@ function App() {
           <div className="lg:col-span-2 space-y-8">
             <section>
               <h2 className="text-xl font-semibold mb-4 text-slate-800 border-b pb-2">Active Incidents</h2>
-              <IncidentList incidents={incidents} />
+              <IncidentList incidents={incidents} onIncidentSelect={setSelectedIncident} />
             </section>
 
             <section>
@@ -93,6 +95,16 @@ function App() {
           </div>
         </div>
       </main>
+
+      {selectedIncident && (
+        <IncidentDecisionPanel
+          incident={selectedIncident}
+          onClose={() => setSelectedIncident(null)}
+          onAllocationApproved={() => {
+            fetchData();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -52,6 +52,17 @@ class Incident(Base):
     injured_people = Column(Integer, default=0)
     vulnerable_people = Column(Integer, default=0)
     status = Column(Enum(IncidentStatus), default=IncidentStatus.reported)
+    
+    # Phase 2 Added fields
+    trapped_people = Column(Integer, default=0)
+    children_count = Column(Integer, default=0)
+    elderly_count = Column(Integer, default=0)
+    required_skills = Column(JSON, default=list)
+    required_equipment = Column(JSON, default=list)
+    priority_score = Column(Float, nullable=True)
+    priority_level = Column(String, nullable=True) # low, medium, high, critical
+    priority_reasons = Column(JSON, default=list)
+
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     
@@ -81,6 +92,11 @@ class Allocation(Base):
     incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=False)
     rescue_team_id = Column(Integer, ForeignKey("rescue_teams.id"), nullable=False)
     status = Column(Enum(AllocationStatus), default=AllocationStatus.recommended)
+    
+    # Phase 2 Added fields
+    recommendation_score = Column(Float, nullable=True)
+    explanation = Column(String, nullable=True)
+
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     

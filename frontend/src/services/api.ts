@@ -1,59 +1,72 @@
-import { DashboardSummary, Incident, IncidentCreateRequest, RescueTeam } from '../types';
+import { Incident, IncidentCreateRequest, DashboardSummary, RescueTeam, PriorityResult, TeamRecommendation, Allocation } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-
-class ApiError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-    this.name = 'ApiError';
-  }
-}
-
-async function fetchWithConfig(endpoint: string, options: RequestInit = {}) {
-  const url = `${API_BASE_URL}/api${endpoint}`;
-  
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers,
-  };
-
-  const response = await fetch(url, { ...options, headers });
-
-  if (!response.ok) {
-    let errorDetail = 'An error occurred';
-    try {
-      const errorData = await response.json();
-      errorDetail = errorData.detail || errorDetail;
-    } catch {
-      // Ignore JSON parse errors for non-JSON responses
-    }
-    throw new ApiError(response.status, typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail));
-  }
-
-  return response.json();
-}
+const API_BASE_URL = 'http://localhost:8000/api';
 
 export const api = {
-  checkHealth: () => fetchWithConfig('/health'),
-  
-  getDashboardSummary: (): Promise<DashboardSummary> => 
-    fetchWithConfig('/dashboard/summary'),
+  checkHealth: async () => {
+    const response = await fetch(`${API_BASE_URL}/health`);
+    if (!response.ok) throw new Error('Health check failed');
+    return response.json();
+  },
 
-  getIncidents: (): Promise<Incident[]> => 
-    fetchWithConfig('/incidents'),
+  getDashboardSummary: async (): Promise<DashboardSummary> => {
+    const response = await fetch(`${API_BASE_URL}/dashboard/summary`);
+    if (!response.ok) throw new Error('Failed to fetch dashboard summary');
+    return response.json();
+  },
 
-  getIncident: (id: number): Promise<Incident> => 
-    fetchWithConfig(`/incidents/${id}`),
+  getIncidents: async (): Promise<Incident[]> => {
+    const response = await fetch(`${API_BASE_URL}/incidents`);
+    if (!response.ok) throw new Error('Failed to fetch incidents');
+    return response.json();
+  },
 
-  createIncident: (incident: IncidentCreateRequest): Promise<Incident> => 
-    fetchWithConfig('/incidents', {
+  createIncident: async (data: IncidentCreateRequest): Promise<Incident> => {
+    const response = await fetch(`${API_BASE_URL}/incidents`, {
       method: 'POST',
-      body: JSON.stringify(incident),
-    }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to create incident');
+    return response.json();
+  },
 
-  getTeams: (): Promise<RescueTeam[]> => 
-    fetchWithConfig('/teams'),
+  getTeams: async (): Promise<RescueTeam[]> => {
+    const response = await fetch(`${API_BASE_URL}/teams`);
+    if (!response.ok) throw new Error('Failed to fetch teams');
+    return response.json();
+  },
 
-  getTeam: (id: number): Promise<RescueTeam> => 
-    fetchWithConfig(`/teams/${id}`),
+  calculatePriority: async (incidentId: number): Promise<PriorityResult> => {
+    const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/calculate-priority`, {
+      method: 'POST'
+    });
+    if (!response.ok) throw new Error('Failed to calculate priority');
+    return response.json();
+  },
+
+  getTeamRecommendations: async (incidentId: number): Promise<TeamRecommendation[]> => {
+    const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/team-recommendations`);
+    if (!response.ok) throw new Error('Failed to fetch team recommendations');
+    return response.json();
+  },
+
+  createAllocation: async (incidentId: number, teamId: number): Promise<Allocation> => {
+    const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/allocations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rescue_team_id: teamId })
+    });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Failed to create allocation');
+    }
+    return response.json();
+  },
+
+  fetchIncidentAllocations: async (incidentId: number): Promise<Allocation[]> => {
+    const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/allocations`);
+    if (!response.ok) throw new Error('Failed to fetch allocations');
+    return response.json();
+  }
 };

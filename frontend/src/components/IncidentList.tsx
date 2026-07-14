@@ -2,9 +2,10 @@ import { Incident } from '../types';
 
 interface Props {
   incidents: Incident[];
+  onIncidentSelect: (incident: Incident) => void;
 }
 
-export default function IncidentList({ incidents }: Props) {
+export default function IncidentList({ incidents, onIncidentSelect }: Props) {
   if (incidents.length === 0) {
     return (
       <div className="bg-white p-8 text-center rounded-lg shadow-sm border border-slate-200">
@@ -49,7 +50,11 @@ export default function IncidentList({ incidents }: Props) {
           </thead>
           <tbody>
             {incidents.map((incident) => (
-              <tr key={incident.id} className="border-b last:border-b-0 hover:bg-slate-50 transition-colors">
+              <tr 
+                key={incident.id} 
+                onClick={() => onIncidentSelect(incident)}
+                className="border-b last:border-b-0 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
                 <td className="px-4 py-3">
                   <div className="font-medium text-slate-900">{incident.title}</div>
                   <div className="text-slate-500 text-xs mt-0.5">{incident.incident_type}</div>

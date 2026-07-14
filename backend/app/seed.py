@@ -18,6 +18,11 @@ def seed_db(db: Session):
             affected_people=150,
             injured_people=5,
             vulnerable_people=20,
+            trapped_people=10,
+            children_count=15,
+            elderly_count=5,
+            required_skills=["flood_rescue", "medical_support"],
+            required_equipment=["boat", "life_jackets", "medical_kit"],
             status=IncidentStatus.reported
         ),
         Incident(
@@ -30,6 +35,11 @@ def seed_db(db: Session):
             affected_people=300,
             injured_people=0,
             vulnerable_people=50,
+            trapped_people=0,
+            children_count=30,
+            elderly_count=20,
+            required_skills=["flood_rescue", "evacuation_coordination"],
+            required_equipment=["boat", "transport_vehicles"],
             status=IncidentStatus.verified
         ),
         Incident(
@@ -42,6 +52,11 @@ def seed_db(db: Session):
             affected_people=40,
             injured_people=12,
             vulnerable_people=5,
+            trapped_people=25,
+            children_count=2,
+            elderly_count=3,
+            required_skills=["swiftwater_rescue", "medical_support", "heavy_lifting"],
+            required_equipment=["ropes", "medical_kit", "pumps"],
             status=IncidentStatus.in_progress
         )
     ]
@@ -52,18 +67,18 @@ def seed_db(db: Session):
             name="Alpha Water Rescue",
             latitude=34.0122,
             longitude=-118.2137,
-            skills=["swiftwater_rescue", "first_aid", "diving"],
-            equipment=["boats", "ropes", "life_jackets"],
+            skills=["flood_rescue", "swiftwater_rescue", "first_aid", "medical_support"],
+            equipment=["boat", "ropes", "life_jackets", "medical_kit"],
             capacity=15,
             current_workload=0,
             availability_status=TeamAvailability.available
         ),
         RescueTeam(
             name="Bravo Medical Unit",
-            latitude=34.0222,
-            longitude=-118.2237,
-            skills=["paramedic", "trauma_care"],
-            equipment=["ambulances", "medical_kits"],
+            latitude=34.0532, # Close to downtown
+            longitude=-118.2337,
+            skills=["medical_support", "trauma_care"],
+            equipment=["ambulance", "medical_kit", "stretchers"],
             capacity=20,
             current_workload=5,
             availability_status=TeamAvailability.available
@@ -72,8 +87,8 @@ def seed_db(db: Session):
             name="Charlie Heavy Lifting",
             latitude=34.0322,
             longitude=-118.2037,
-            skills=["debris_removal", "heavy_machinery"],
-            equipment=["cranes", "bulldozers"],
+            skills=["debris_removal", "heavy_lifting"],
+            equipment=["crane", "bulldozers", "pumps"],
             capacity=10,
             current_workload=10,
             availability_status=TeamAvailability.assigned
@@ -82,8 +97,8 @@ def seed_db(db: Session):
             name="Delta Air Evac",
             latitude=34.0822,
             longitude=-118.2937,
-            skills=["helicopter_pilot", "air_rescue"],
-            equipment=["helicopters", "hoists"],
+            skills=["air_rescue", "medical_support"],
+            equipment=["helicopter", "hoists", "medical_kit"],
             capacity=5,
             current_workload=0,
             availability_status=TeamAvailability.available
@@ -92,8 +107,8 @@ def seed_db(db: Session):
             name="Echo Ground Search",
             latitude=34.0722,
             longitude=-118.2837,
-            skills=["search_and_rescue", "k9_unit"],
-            equipment=["radios", "search_dogs"],
+            skills=["search_and_rescue", "evacuation_coordination"],
+            equipment=["radio", "transport_vehicles"],
             capacity=30,
             current_workload=0,
             availability_status=TeamAvailability.available
