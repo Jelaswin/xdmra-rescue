@@ -38,6 +38,15 @@ class Incident(IncidentBase):
     priority_score: Optional[float] = None
     priority_level: Optional[str] = None
     priority_reasons: List[str] = Field(default_factory=list)
+    
+    ml_priority_level: Optional[str] = None
+    ml_priority_confidence: Optional[float] = None
+    ml_model_name: Optional[str] = None
+    ml_model_version: Optional[str] = None
+    ml_predicted_at: Optional[datetime] = None
+    priority_agreement_status: Optional[str] = None
+    requires_priority_review: bool = False
+    
     created_at: datetime
     updated_at: datetime
     
@@ -100,3 +109,30 @@ class PriorityResult(BaseModel):
     priority_level: str
     reasons: List[str]
     factor_breakdown: Dict[str, float]
+
+class MLPredictionResponse(BaseModel):
+    predicted_priority: str
+    confidence: float
+    class_probabilities: Dict[str, float]
+    model_name: str
+    model_version: str
+
+class PriorityComparisonResponse(BaseModel):
+    rule_priority: str
+    rule_score: float
+    ml_priority: str
+    ml_confidence: float
+    agreement_status: str
+    requires_officer_review: bool
+    comparison_message: str
+
+class ModelInfoResponse(BaseModel):
+    loaded: bool
+    message: Optional[str] = None
+    model_name: Optional[str] = None
+    model_version: Optional[str] = None
+    features: Optional[List[str]] = None
+    classes: Optional[List[str]] = None
+    evaluation_metrics: Optional[Dict[str, float]] = None
+    training_dataset_type: Optional[str] = None
+    training_dataset_size: Optional[int] = None

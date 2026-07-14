@@ -6,3 +6,6 @@ uvicorn
 pytest
 httpx
 python-dotenv
+scikit-learn
+pandas
+joblib

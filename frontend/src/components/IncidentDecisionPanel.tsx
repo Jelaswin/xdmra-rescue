@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Incident, PriorityResult, TeamRecommendation, Allocation } from '../types';
+import { Incident, PriorityResult, TeamRecommendation, Allocation, PriorityComparisonResponse } from '../types';
 import { api } from '../services/api';
 
 interface Props {
@@ -10,10 +10,12 @@ interface Props {
 
 export default function IncidentDecisionPanel({ incident, onAllocationApproved, onClose }: Props) {
   const [priorityResult, setPriorityResult] = useState<PriorityResult | null>(null);
+  const [mlComparison, setMlComparison] = useState<PriorityComparisonResponse | null>(null);
   const [recommendations, setRecommendations] = useState<TeamRecommendation[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   
   const [loadingPriority, setLoadingPriority] = useState(false);
+  const [loadingMl, setLoadingMl] = useState(false);
   const [loadingRecs, setLoadingRecs] = useState(false);
   const [approvingTeam, setApprovingTeam] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +35,18 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
             priority_level: incident.priority_level,
             reasons: incident.priority_reasons || [],
             factor_breakdown: {}
+          });
+        }
+        
+        if (incident.ml_priority_level && incident.priority_agreement_status) {
+          setMlComparison({
+            rule_priority: incident.priority_level || '',
+            rule_score: incident.priority_score || 0,
+            ml_priority: incident.ml_priority_level,
+            ml_confidence: incident.ml_priority_confidence || 0,
+            agreement_status: incident.priority_agreement_status,
+            requires_officer_review: incident.requires_priority_review,
+            comparison_message: ''
           });
         }
       } catch (e) {
@@ -55,6 +69,26 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
     }
   };
 
+  const handlePredictMl = async () => {
+    setLoadingMl(true);
+    setError(null);
+    try {
+      const res = await api.predictPriorityML(incident.id);
+      setMlComparison(res);
+      // Ensure rule-based is also showing since ML fetches it
+      setPriorityResult({
+        priority_score: res.rule_score,
+        priority_level: res.rule_priority,
+        reasons: incident.priority_reasons || [],
+        factor_breakdown: {}
+      });
+    } catch (err: any) {
+      setError(err.message || 'Failed to predict ML priority');
+    } finally {
+      setLoadingMl(false);
+    }
+  };
+
   const handleGenerateRecommendations = async () => {
     setLoadingRecs(true);
     setError(null);
@@ -69,7 +103,11 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
   };
 
   const handleApproveTeam = async (teamId: number) => {
-    if (!window.confirm("Are you sure you want to approve this allocation?")) return;
+    if (mlComparison?.requires_officer_review) {
+      if (!window.confirm("WARNING: The ML model strongly disagrees with the predefined priority. Are you sure you want to proceed with this allocation?")) return;
+    } else {
+      if (!window.confirm("Are you sure you want to approve this allocation?")) return;
+    }
     
     setApprovingTeam(teamId);
     setError(null);
@@ -168,50 +206,104 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
             </div>
 
             {/* Priority Section */}
-            <div className="border border-slate-200 rounded-lg p-4 flex flex-col">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-slate-800">Priority Engine</h3>
-                <button
-                  onClick={handleCalculatePriority}
-                  disabled={loadingPriority || incident.status === 'resolved'}
-                  className="px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
-                >
-                  {loadingPriority ? 'Calculating...' : 'Calculate Priority'}
-                </button>
+            <div className="flex flex-col gap-4">
+              {/* Predefined Engine */}
+              <div className="border border-slate-200 rounded-lg p-4 flex flex-col bg-white">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-slate-800">Predefined Priority Engine</h3>
+                  <button
+                    onClick={handleCalculatePriority}
+                    disabled={loadingPriority || incident.status === 'resolved'}
+                    className="px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                  >
+                    {loadingPriority ? 'Calculating...' : 'Calculate'}
+                  </button>
+                </div>
+
+                {priorityResult ? (
+                  <div className="flex-1 flex flex-col">
+                    <div className="flex items-end gap-4 mb-4 pb-4 border-b border-slate-100">
+                      <div>
+                        <p className="text-xs text-slate-500 font-medium mb-1">Score (0-100)</p>
+                        <p className="text-3xl font-black text-slate-800">{priorityResult.priority_score}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 font-medium mb-1">Level</p>
+                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold border capitalize ${getPriorityColor(priorityResult.priority_level)}`}>
+                          {priorityResult.priority_level}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center text-slate-400 text-sm py-4">
+                    Click 'Calculate' to run predefined rules.
+                  </div>
+                )}
               </div>
 
-              {priorityResult ? (
-                <div className="flex-1 flex flex-col">
-                  <div className="flex items-end gap-4 mb-6 pb-6 border-b border-slate-100">
-                    <div>
-                      <p className="text-xs text-slate-500 font-medium mb-1">Score (0-100)</p>
-                      <p className="text-4xl font-black text-slate-800">{priorityResult.priority_score}</p>
+              {/* ML Engine */}
+              <div className="border border-slate-200 rounded-lg p-4 flex flex-col bg-slate-50">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                    Machine-Learning Prediction
+                  </h3>
+                  <button
+                    onClick={handlePredictMl}
+                    disabled={loadingMl || incident.status === 'resolved'}
+                    className="px-3 py-1.5 bg-purple-600 text-white text-sm font-medium rounded hover:bg-purple-700 disabled:opacity-50 transition-colors shadow-sm"
+                  >
+                    {loadingMl ? 'Predicting...' : 'Predict with ML'}
+                  </button>
+                </div>
+
+                {mlComparison ? (
+                  <div className="flex-1 flex flex-col">
+                    <div className="flex items-end gap-4 mb-4 pb-4 border-b border-slate-200">
+                      <div>
+                        <p className="text-xs text-slate-500 font-medium mb-1">Confidence</p>
+                        <p className="text-3xl font-black text-purple-700">{Math.round(mlComparison.ml_confidence * 100)}%</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 font-medium mb-1">Predicted Level</p>
+                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold border capitalize ${getPriorityColor(mlComparison.ml_priority)}`}>
+                          {mlComparison.ml_priority}
+                        </span>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs text-slate-500 font-medium mb-1">Level</p>
-                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold border capitalize ${getPriorityColor(priorityResult.priority_level)}`}>
-                        {priorityResult.priority_level}
-                      </span>
+
+                    <div className="mt-2">
+                      {mlComparison.agreement_status === 'agreement' ? (
+                        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-md text-sm">
+                          <p className="font-semibold flex items-center gap-2">
+                            <span>✓</span> Agreement
+                          </p>
+                          <p className="text-xs mt-1 text-emerald-600">The ML model agrees with the rule-based priority.</p>
+                        </div>
+                      ) : mlComparison.agreement_status === 'minor_disagreement' ? (
+                        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-md text-sm">
+                          <p className="font-semibold flex items-center gap-2">
+                            <span>⚠</span> Minor Disagreement
+                          </p>
+                          <p className="text-xs mt-1 text-yellow-700">{mlComparison.comparison_message || 'Officer review is required before allocation.'}</p>
+                        </div>
+                      ) : (
+                        <div className="bg-red-50 border border-red-200 text-red-800 p-3 rounded-md text-sm">
+                          <p className="font-semibold flex items-center gap-2">
+                            <span>!</span> Major Disagreement
+                          </p>
+                          <p className="text-xs mt-1 text-red-700">{mlComparison.comparison_message || 'Officer review is strongly required.'}</p>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-slate-800 mb-2">Priority Reasons:</p>
-                    <ul className="space-y-1">
-                      {priorityResult.reasons.map((r, i) => (
-                        <li key={i} className="text-sm text-slate-600 flex items-start">
-                          <span className="text-brand-primary mr-2">•</span>
-                          {r}
-                        </li>
-                      ))}
-                    </ul>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center text-slate-400 text-sm py-4">
+                    Click 'Predict' to run ML model.
                   </div>
-                </div>
-              ) : (
-                <div className="flex-1 flex items-center justify-center text-slate-400 text-sm">
-                  Click 'Calculate Priority' to analyze this incident.
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
 

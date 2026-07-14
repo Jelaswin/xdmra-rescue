@@ -63,6 +63,15 @@ class Incident(Base):
     priority_level = Column(String, nullable=True) # low, medium, high, critical
     priority_reasons = Column(JSON, default=list)
 
+    # Phase 3 ML fields
+    ml_priority_level = Column(String, nullable=True)
+    ml_priority_confidence = Column(Float, nullable=True)
+    ml_model_name = Column(String, nullable=True)
+    ml_model_version = Column(String, nullable=True)
+    ml_predicted_at = Column(DateTime, nullable=True)
+    priority_agreement_status = Column(String, nullable=True)
+    requires_priority_review = Column(Integer, default=0) # bool
+
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     
