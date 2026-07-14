@@ -113,9 +113,17 @@ export interface Allocation {
   id: number;
   incident_id: number;
   rescue_team_id: number;
-  status: 'recommended' | 'approved' | 'dispatched' | 'completed' | 'cancelled';
+  status: 'recommended' | 'approved' | 'dispatched' | 'completed' | 'cancelled' | 'superseded' | 'reallocated';
   recommendation_score: number | null;
   explanation: string | null;
+
+  superseded_by_allocation_id?: number;
+  supersedes_allocation_id?: number;
+  ended_at?: string;
+  termination_reason?: string;
+  reallocation_reason?: string;
+  approved_by?: string;
+
   created_at: string;
   updated_at: string;
 }
@@ -186,4 +194,56 @@ export interface MapTeam {
 export interface MapOverviewResponse {
   incidents: MapIncident[];
   teams: MapTeam[];
+}
+
+// Phase 5 Reallocation Types
+export interface ReallocationEvaluateRequest {
+  trigger_type: string;
+  trigger_description?: string;
+}
+
+export interface ReallocationApprovalRequest {
+  replacement_team_id: number;
+  trigger_type: string;
+  reason: string;
+}
+
+export interface OperationalStatusUpdate {
+  availability_status: string;
+  reason?: string;
+}
+
+export interface RouteConditionCreate {
+  rescue_team_id: number;
+  risk_level: string;
+  is_blocked: boolean;
+  estimated_delay_minutes: number;
+  description?: string;
+}
+
+export interface ReallocationRecommendationResult {
+  reallocation_required: boolean;
+  trigger_type: string;
+  current_team: Record<string, any>;
+  reason: string;
+  recommended_replacement?: Record<string, any>;
+  explanation: string;
+  alternatives: TeamRecommendation[];
+}
+
+export interface ReallocationEventResponse {
+  id: number;
+  incident_id: number;
+  previous_allocation_id: number;
+  previous_team_id: number;
+  replacement_team_id?: number;
+  trigger_type: string;
+  trigger_description?: string;
+  old_recommendation_score?: number;
+  new_recommendation_score?: number;
+  explanation?: string;
+  status: string;
+  created_at: string;
+  approved_at?: string;
+  rejected_at?: string;
 }

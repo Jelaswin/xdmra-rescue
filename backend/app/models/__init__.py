@@ -28,6 +28,15 @@ class AllocationStatus(str, enum.Enum):
     dispatched = "dispatched"
     completed = "completed"
     cancelled = "cancelled"
+    superseded = "superseded"
+    reallocated = "reallocated"
+
+class ReallocationStatus(str, enum.Enum):
+    detected = "detected"
+    recommended = "recommended"
+    approved = "approved"
+    rejected = "rejected"
+    completed = "completed"
 
 class RouteRisk(str, enum.Enum):
     low = "low"
@@ -124,6 +133,14 @@ class Allocation(Base):
     # Phase 2 Added fields
     recommendation_score = Column(Float, nullable=True)
     explanation = Column(String, nullable=True)
+    
+    # Phase 5 Added fields
+    superseded_by_allocation_id = Column(Integer, ForeignKey("allocations.id"), nullable=True)
+    supersedes_allocation_id = Column(Integer, ForeignKey("allocations.id"), nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+    termination_reason = Column(String, nullable=True)
+    reallocation_reason = Column(String, nullable=True)
+    approved_by = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
@@ -135,9 +152,28 @@ class RouteCondition(Base):
     __tablename__ = "route_conditions"
     
     id = Column(Integer, primary_key=True, index=True)
-    route_name = Column(String, nullable=False)
-    origin_label = Column(String, nullable=False)
-    destination_label = Column(String, nullable=False)
-    risk_level = Column(Enum(RouteRisk), nullable=False)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=True)
+    rescue_team_id = Column(Integer, ForeignKey("rescue_teams.id"), nullable=True)
+    risk_level = Column(Enum(RouteRisk), nullable=False, default=RouteRisk.low)
     is_blocked = Column(Integer, default=0) # boolean stored as integer for sqlite compat 
+    estimated_delay_minutes = Column(Integer, default=0)
+    description = Column(String, nullable=True)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+class ReallocationEvent(Base):
+    __tablename__ = "reallocation_events"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=False)
+    previous_allocation_id = Column(Integer, ForeignKey("allocations.id"), nullable=False)
+    previous_team_id = Column(Integer, ForeignKey("rescue_teams.id"), nullable=False)
+    replacement_team_id = Column(Integer, ForeignKey("rescue_teams.id"), nullable=True)
+    trigger_type = Column(String, nullable=False)
+    trigger_description = Column(String, nullable=True)
+    old_recommendation_score = Column(Float, nullable=True)
+    new_recommendation_score = Column(Float, nullable=True)
+    explanation = Column(String, nullable=True)
+    status = Column(Enum(ReallocationStatus), default=ReallocationStatus.detected)
+    created_at = Column(DateTime, default=utcnow)
+    approved_at = Column(DateTime, nullable=True)
+    rejected_at = Column(DateTime, nullable=True)

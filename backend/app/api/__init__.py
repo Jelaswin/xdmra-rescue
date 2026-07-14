@@ -4,8 +4,7 @@ from typing import List
 from datetime import datetime, timezone
 
 from app.database import get_db
-from app import schemas
-from app.models import Incident, Allocation
+from app import schemas, models
 from app.services import (
     get_dashboard_summary, 
     create_incident, 
@@ -20,9 +19,10 @@ from app.services import (
     get_allocation,
     priority_predictor,
     priority_service,
-    geocoding_service
+    geocoding_service,
+    allocation_service,
+    reallocation_service
 )
-from app.models import Incident, Allocation, RescueTeam
 
 router = APIRouter()
 
@@ -117,7 +117,7 @@ def retrain_model():
 
 @router.post("/incidents/{incident_id}/predict-priority-ml", response_model=schemas.PriorityComparisonResponse)
 def predict_incident_priority_ml(incident_id: int, db: Session = Depends(get_db)):
-    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    incident = db.query(models.Incident).filter(models.Incident.id == incident_id).first()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
         
@@ -168,7 +168,7 @@ async def search_locations(q: str):
 
 @router.patch("/incidents/{incident_id}/location", response_model=schemas.Incident)
 def update_incident_location(incident_id: int, req: schemas.IncidentLocationUpdate, db: Session = Depends(get_db)):
-    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    incident = db.query(models.Incident).filter(models.Incident.id == incident_id).first()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
         
@@ -189,7 +189,7 @@ def update_incident_location(incident_id: int, req: schemas.IncidentLocationUpda
 
 @router.patch("/teams/{team_id}/location", response_model=schemas.RescueTeam)
 def update_team_location(team_id: int, req: schemas.TeamLocationUpdate, db: Session = Depends(get_db)):
-    team = db.query(RescueTeam).filter(RescueTeam.id == team_id).first()
+    team = db.query(models.RescueTeam).filter(models.RescueTeam.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
         
@@ -203,10 +203,79 @@ def update_team_location(team_id: int, req: schemas.TeamLocationUpdate, db: Sess
 
 @router.get("/map/overview", response_model=schemas.MapOverviewResponse)
 def get_map_overview(db: Session = Depends(get_db)):
-    incidents = db.query(Incident).filter(
-        Incident.status.in_(["reported", "verified", "assigned", "in_progress"])
+    incidents = db.query(models.Incident).filter(
+        models.Incident.status.in_([
+            models.IncidentStatus.reported,
+            models.IncidentStatus.verified,
+            models.IncidentStatus.assigned,
+            models.IncidentStatus.in_progress
+        ])
     ).all()
     
-    teams = db.query(RescueTeam).all()
+    teams = db.query(models.RescueTeam).all()
     
     return schemas.MapOverviewResponse(incidents=incidents, teams=teams)
+
+# ================= Phase 5 Reallocation Endpoints =================
+
+@router.post("/incidents/{incident_id}/evaluate-reallocation", response_model=schemas.ReallocationRecommendationResult)
+def evaluate_reallocation(incident_id: int, req: schemas.ReallocationEvaluateRequest, db: Session = Depends(get_db)):
+    return reallocation_service.evaluate_reallocation(db, incident_id, req.trigger_type, req.trigger_description)
+
+@router.post("/incidents/{incident_id}/reallocate", response_model=schemas.AllocationResponse)
+def approve_reallocation(incident_id: int, req: schemas.ReallocationApprovalRequest, db: Session = Depends(get_db)):
+    return reallocation_service.approve_reallocation(
+        db, incident_id, req.replacement_team_id, req.trigger_type, req.reason
+    )
+
+@router.get("/incidents/{incident_id}/reallocation-history", response_model=List[schemas.ReallocationEventResponse])
+def get_reallocation_history(incident_id: int, db: Session = Depends(get_db)):
+    events = db.query(models.ReallocationEvent).filter(models.ReallocationEvent.incident_id == incident_id).order_by(models.ReallocationEvent.created_at.desc()).all()
+    return events
+
+@router.post("/incidents/{incident_id}/route-conditions", response_model=schemas.RouteConditionCreate)
+def create_route_condition(incident_id: int, req: schemas.RouteConditionCreate, db: Session = Depends(get_db)):
+    rc = db.query(models.RouteCondition).filter(
+        models.RouteCondition.incident_id == incident_id,
+        models.RouteCondition.rescue_team_id == req.rescue_team_id
+    ).first()
+    
+    if rc:
+        rc.risk_level = req.risk_level
+        rc.is_blocked = int(req.is_blocked)
+        rc.estimated_delay_minutes = req.estimated_delay_minutes
+        rc.description = req.description
+    else:
+        rc = models.RouteCondition(
+            incident_id=incident_id,
+            rescue_team_id=req.rescue_team_id,
+            risk_level=req.risk_level,
+            is_blocked=int(req.is_blocked),
+            estimated_delay_minutes=req.estimated_delay_minutes,
+            description=req.description
+        )
+        db.add(rc)
+    db.commit()
+    return req
+
+@router.patch("/route-conditions/{route_condition_id}")
+def update_route_condition(route_condition_id: int, req: schemas.RouteConditionCreate, db: Session = Depends(get_db)):
+    rc = db.query(models.RouteCondition).filter(models.RouteCondition.id == route_condition_id).first()
+    if not rc:
+        raise HTTPException(status_code=404, detail="Route condition not found")
+    rc.risk_level = req.risk_level
+    rc.is_blocked = int(req.is_blocked)
+    rc.estimated_delay_minutes = req.estimated_delay_minutes
+    rc.description = req.description
+    db.commit()
+    return {"status": "ok"}
+
+@router.patch("/teams/{team_id}/operational-status", response_model=schemas.RescueTeam)
+def update_team_operational_status(team_id: int, req: schemas.OperationalStatusUpdate, db: Session = Depends(get_db)):
+    team = db.query(models.RescueTeam).filter(models.RescueTeam.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    team.availability_status = req.availability_status
+    db.commit()
+    db.refresh(team)
+    return team

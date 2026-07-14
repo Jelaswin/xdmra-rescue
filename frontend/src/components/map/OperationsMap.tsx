@@ -38,11 +38,12 @@ const createIncidentIcon = (severity: string, title: string) => {
   });
 };
 
-const createTeamIcon = () => {
+const createTeamIcon = (status: string) => {
+  const bgColor = status === 'unavailable' ? '#9ca3af' : (status === 'assigned' ? '#3b82f6' : '#22c55e');
   return L.divIcon({
     className: 'custom-div-icon',
     html: `<div style="
-      background-color: #22c55e;
+      background-color: ${bgColor};
       width: 24px;
       height: 24px;
       border-radius: 4px;
@@ -93,7 +94,7 @@ export const OperationsMap: React.FC<OperationsMapProps> = ({ incidents, teams }
           <Marker 
             key={`team-${team.id}`}
             position={[team.latitude, team.longitude]}
-            icon={createTeamIcon()}
+            icon={createTeamIcon(team.availability_status)}
           >
             <MapMarkerPopup type="team" data={team} />
           </Marker>
@@ -106,7 +107,15 @@ export const OperationsMap: React.FC<OperationsMapProps> = ({ incidents, teams }
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-sm bg-[#22c55e] border border-white"></div>
-            <span>Rescue Team</span>
+            <span>Team Available</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-sm bg-[#3b82f6] border border-white"></div>
+            <span>Team Assigned</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-sm bg-[#9ca3af] border border-white"></div>
+            <span>Team Unavailable</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-full bg-[#dc2626] border border-white"></div>

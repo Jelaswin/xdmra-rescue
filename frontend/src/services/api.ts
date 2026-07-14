@@ -1,4 +1,4 @@
-import { Incident, IncidentCreateRequest, DashboardSummary, RescueTeam, PriorityResult, TeamRecommendation, Allocation, MLPredictionResponse, PriorityComparisonResponse, ModelInfo, GeocodingResult, MapOverviewResponse } from '../types';
+import { Incident, IncidentCreateRequest, DashboardSummary, RescueTeam, PriorityResult, TeamRecommendation, Allocation, MLPredictionResponse, PriorityComparisonResponse, ModelInfo, GeocodingResult, MapOverviewResponse, ReallocationRecommendationResult, ReallocationEventResponse, RouteConditionCreate, OperationalStatusUpdate } from '../types';
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
@@ -96,6 +96,59 @@ export const api = {
   getMapOverview: async (): Promise<MapOverviewResponse> => {
     const response = await fetch(`${API_BASE_URL}/map/overview`);
     if (!response.ok) throw new Error('Failed to fetch map overview');
+    return response.json();
+  },
+
+  // Phase 5: Reallocation Endpoints
+  evaluateReallocation: async (incidentId: number, triggerType: string, description?: string): Promise<ReallocationRecommendationResult> => {
+    const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/evaluate-reallocation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trigger_type: triggerType, trigger_description: description })
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to evaluate reallocation');
+    }
+    return response.json();
+  },
+
+  approveReallocation: async (incidentId: number, replacementTeamId: number, triggerType: string, reason: string): Promise<Allocation> => {
+    const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/reallocate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ replacement_team_id: replacementTeamId, trigger_type: triggerType, reason })
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to approve reallocation');
+    }
+    return response.json();
+  },
+
+  getReallocationHistory: async (incidentId: number): Promise<ReallocationEventResponse[]> => {
+    const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/reallocation-history`);
+    if (!response.ok) throw new Error('Failed to fetch reallocation history');
+    return response.json();
+  },
+
+  createRouteCondition: async (incidentId: number, data: RouteConditionCreate): Promise<any> => {
+    const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/route-conditions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error('Failed to update route condition');
+    return response.json();
+  },
+
+  updateTeamStatus: async (teamId: number, status: string, reason?: string): Promise<RescueTeam> => {
+    const response = await fetch(`${API_BASE_URL}/teams/${teamId}/operational-status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ availability_status: status, reason })
+    });
+    if (!response.ok) throw new Error('Failed to update team operational status');
     return response.json();
   }
 };
