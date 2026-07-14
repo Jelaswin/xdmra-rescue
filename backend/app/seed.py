@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from app.models import Incident, RescueTeam, RouteCondition, IncidentSeverity, IncidentStatus, TeamAvailability, RouteRisk, LocationAccuracy, LocationSource
+from app.models import Warehouse, ReliefInventory, DeliveryVehicle, WarehouseOperatingStatus, VehicleAvailability, Incident, RescueTeam, RouteCondition, IncidentSeverity, IncidentStatus, TeamAvailability, RouteRisk, LocationAccuracy, LocationSource
 
 def seed_db(db: Session):
     # Check if we already seeded to ensure idempotency
@@ -131,6 +131,14 @@ def seed_db(db: Session):
     routes = [
         RouteCondition(
             incident_id=1,
+            warehouse_id=1,
+            risk_level=RouteRisk.high,
+            is_blocked=0,
+            estimated_delay_minutes=45,
+            description="Flooded underpass on route from District Warehouse"
+        ),
+        RouteCondition(
+            incident_id=1,
             rescue_team_id=1,
             risk_level=RouteRisk.high,
             is_blocked=0,
@@ -151,3 +159,90 @@ def seed_db(db: Session):
     db.add_all(teams)
     db.add_all(routes)
     db.commit()
+
+    # Seed Warehouses
+    warehouses = [
+        Warehouse(
+            name="District Relief Warehouse",
+            location_name="Coimbatore Central",
+            latitude=11.0168,
+            longitude=76.9558,
+            warehouse_type="Government",
+            operating_status=WarehouseOperatingStatus.active,
+            maximum_dispatch_capacity=1000,
+            current_dispatch_workload=50
+        ),
+        Warehouse(
+            name="GH Medical Depot",
+            location_name="Coimbatore Medical College",
+            latitude=11.0016,
+            longitude=76.9723,
+            warehouse_type="Hospital",
+            operating_status=WarehouseOperatingStatus.active,
+            maximum_dispatch_capacity=500,
+            current_dispatch_workload=10
+        ),
+        Warehouse(
+            name="NGO Supply Centre",
+            location_name="Peelamedu",
+            latitude=11.0270,
+            longitude=77.0062,
+            warehouse_type="NGO",
+            operating_status=WarehouseOperatingStatus.limited,
+            maximum_dispatch_capacity=200,
+            current_dispatch_workload=150
+        ),
+        Warehouse(
+            name="Rural Emergency Stock Point",
+            location_name="Thondamuthur",
+            latitude=10.9930,
+            longitude=76.8290,
+            warehouse_type="Local",
+            operating_status=WarehouseOperatingStatus.active,
+            maximum_dispatch_capacity=100,
+            current_dispatch_workload=0
+        )
+    ]
+    db.add_all(warehouses)
+    db.commit()
+
+    # Seed Inventory for Warehouse 1 (District Relief)
+    inventory = [
+        ReliefInventory(warehouse_id=1, item_type="food_packet", display_name="Food Packets", unit="packets", quantity_available=5000, reorder_level=500),
+        ReliefInventory(warehouse_id=1, item_type="drinking_water_litre", display_name="Drinking Water", unit="litres", quantity_available=10000, reorder_level=1000),
+        ReliefInventory(warehouse_id=1, item_type="medical_kit", display_name="Medical Kits", unit="kits", quantity_available=50, reorder_level=100), # low stock
+        ReliefInventory(warehouse_id=1, item_type="blanket", display_name="Blankets", unit="items", quantity_available=2000, reorder_level=200),
+        ReliefInventory(warehouse_id=1, item_type="hygiene_kit", display_name="Hygiene Kits", unit="kits", quantity_available=1000, reorder_level=100),
+        ReliefInventory(warehouse_id=1, item_type="baby_supply_kit", display_name="Baby Supply Kits", unit="kits", quantity_available=500, reorder_level=50),
+        ReliefInventory(warehouse_id=1, item_type="emergency_light", display_name="Emergency Lights", unit="items", quantity_available=300, reorder_level=50),
+        ReliefInventory(warehouse_id=1, item_type="temporary_tent", display_name="Temporary Tents", unit="tents", quantity_available=100, reorder_level=20),
+        
+        # Seed Inventory for Warehouse 2 (Medical)
+        ReliefInventory(warehouse_id=2, item_type="medical_kit", display_name="Medical Kits", unit="kits", quantity_available=2000, reorder_level=500),
+        ReliefInventory(warehouse_id=2, item_type="hygiene_kit", display_name="Hygiene Kits", unit="kits", quantity_available=1500, reorder_level=200),
+        ReliefInventory(warehouse_id=2, item_type="baby_supply_kit", display_name="Baby Supply Kits", unit="kits", quantity_available=800, reorder_level=100),
+        
+        # Seed Inventory for Warehouse 3 (NGO)
+        ReliefInventory(warehouse_id=3, item_type="food_packet", display_name="Food Packets", unit="packets", quantity_available=2000, reorder_level=200),
+        ReliefInventory(warehouse_id=3, item_type="drinking_water_litre", display_name="Drinking Water", unit="litres", quantity_available=3000, reorder_level=500),
+        ReliefInventory(warehouse_id=3, item_type="blanket", display_name="Blankets", unit="items", quantity_available=500, reorder_level=100),
+        
+        # Seed Inventory for Warehouse 4 (Rural)
+        ReliefInventory(warehouse_id=4, item_type="food_packet", display_name="Food Packets", unit="packets", quantity_available=500, reorder_level=100),
+        ReliefInventory(warehouse_id=4, item_type="temporary_tent", display_name="Temporary Tents", unit="tents", quantity_available=20, reorder_level=5)
+    ]
+    db.add_all(inventory)
+    db.commit()
+
+    # Seed Vehicles
+    vehicles = [
+        DeliveryVehicle(warehouse_id=1, name="District Truck Alpha", vehicle_type="Heavy Truck", capacity_units=2000, availability_status=VehicleAvailability.available),
+        DeliveryVehicle(warehouse_id=1, name="District Truck Beta", vehicle_type="Medium Truck", capacity_units=1000, availability_status=VehicleAvailability.assigned, current_workload=800),
+        DeliveryVehicle(warehouse_id=2, name="Med-Transport 1", vehicle_type="Van", capacity_units=500, availability_status=VehicleAvailability.available),
+        DeliveryVehicle(warehouse_id=2, name="Med-Transport 2", vehicle_type="Van", capacity_units=500, availability_status=VehicleAvailability.unavailable),
+        DeliveryVehicle(warehouse_id=3, name="NGO Pickup", vehicle_type="Pickup", capacity_units=300, availability_status=VehicleAvailability.available),
+        DeliveryVehicle(warehouse_id=4, name="Rural Tractor", vehicle_type="Tractor", capacity_units=200, availability_status=VehicleAvailability.available)
+    ]
+    db.add_all(vehicles)
+    db.commit()
+

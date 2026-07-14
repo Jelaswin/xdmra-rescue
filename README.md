@@ -98,3 +98,23 @@ pytest
 - Real-time updates via WebSockets are not implemented yet.
 - Dynamic en-route reallocation is planned for future phases.
 - Rescue team location editing UI in the frontend is not implemented yet.
+
+## Phase 6: Relief-Supply Allocation
+Added robust supply-chain logistics to X-DMRA.
+
+- **Relief-Demand Workflow**: Automatically calculates required items (food, water, medical) based on incident metrics. Officers can override these suggestions.
+- **Demand Calculation Rules**: E.g., 3 meals per affected person per day.
+- **Warehouse Ranking Factors**:
+  - Stock Coverage (35%)
+  - Item Coverage (15%)
+  - Distance (15%)
+  - Vehicle Capacity (15%)
+  - Route Risk (10%)
+  - Warehouse Workload (10%)
+- **Single & Split Allocation**: Suggests a single warehouse if fully stocked, or splits the requirement across multiple warehouses.
+- **Inventory Reservation Lifecycle**: Available -> Reserved (on dispatch approval) -> Dispatched -> Delivered (final deduction).
+- **Officer Approval Requirement**: No dispatch is executed without officer verification.
+- **New API Endpoints**: `/api/warehouses`, `/api/inventory`, `/api/delivery-vehicles`, `/api/relief-requests`, etc.
+- **Demonstration Data Disclaimer**: The Coimbatore seed data is for demonstration only and does not represent real government stock.
+
+See `backend/app/services/RELIEF_ALGORITHM.md` for algorithm details.

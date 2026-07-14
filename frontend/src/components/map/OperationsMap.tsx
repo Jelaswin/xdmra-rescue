@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import L from 'leaflet';
-import { MapIncident, MapTeam } from '../../types';
+import { MapIncident, MapTeam, Warehouse } from '../../types';
 import { MapMarkerPopup } from './MapMarkerPopup';
 
 interface OperationsMapProps {
   incidents: MapIncident[];
   teams: MapTeam[];
+  warehouses?: Warehouse[];
 }
 
 const getIncidentColor = (severity: string) => {
@@ -61,7 +62,31 @@ const createTeamIcon = (status: string) => {
   });
 };
 
-export const OperationsMap: React.FC<OperationsMapProps> = ({ incidents, teams }) => {
+
+const createWarehouseIcon = (status: string) => {
+  const bgColor = status === 'active' ? '#8b5cf6' : (status === 'limited' ? '#f59e0b' : '#ef4444');
+  return L.divIcon({
+    className: 'custom-div-icon',
+    html: `<div style="
+      background-color: ${bgColor};
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      border: 2px solid white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 14px;
+    ">W</div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12]
+  });
+};
+
+export const OperationsMap: React.FC<OperationsMapProps> = ({ incidents, teams, warehouses = [] }) => {
   const [center, setCenter] = useState<L.LatLngExpression>([11.0168, 76.9558]); // Default Coimbatore
   
   useEffect(() => {
@@ -99,6 +124,16 @@ export const OperationsMap: React.FC<OperationsMapProps> = ({ incidents, teams }
             <MapMarkerPopup type="team" data={team} />
           </Marker>
         ))}
+      
+        {warehouses.map((wh) => (
+          <Marker 
+            key={`warehouse-${wh.id}`}
+            position={[wh.latitude, wh.longitude]}
+            icon={createWarehouseIcon(wh.operating_status)}
+          >
+            <MapMarkerPopup type="warehouse" data={wh} />
+          </Marker>
+        ))}
       </MapContainer>
       
       {/* Legend overlay */}
@@ -116,6 +151,10 @@ export const OperationsMap: React.FC<OperationsMapProps> = ({ incidents, teams }
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-sm bg-[#9ca3af] border border-white"></div>
             <span>Team Unavailable</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-sm bg-[#8b5cf6] border border-white"></div>
+            <span>Warehouse</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-full bg-[#dc2626] border border-white"></div>

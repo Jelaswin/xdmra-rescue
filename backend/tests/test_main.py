@@ -794,3 +794,246 @@ def test_p5_28_end_to_end_reallocation_flow():
     history = client.get(f"/api/incidents/{inc['id']}/reallocation-history").json()
     assert len(history) == 1
     assert history[0]["replacement_team_id"] == new_team_id
+
+# ==========================================
+# PHASE 6: RELIEF ALLOCATION TESTS
+# ==========================================
+def test_relief_demand_suggestion():
+    # Setup test incident
+    inc_payload = {
+        "title": "Flood Relief", "description": "Flood", "incident_type": "flood",
+        "latitude": 11.0, "longitude": 77.0, "severity": "high",
+        "affected_people": 100, "injured_people": 20, "vulnerable_people": 10,
+        "children_count": 15, "elderly_count": 5
+    }
+    resp = client.post("/api/incidents/", json=inc_payload)
+    inc_id = resp.json()["id"]
+    
+    res = client.post(f"/api/incidents/{inc_id}/relief-demand/suggest?support_duration_days=2")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["support_duration_days"] == 2
+    items = {i["item_type"]: i["quantity"] for i in data["suggested_items"]}
+    
+    assert items["food_packet"] == 100 * 3 * 2 # 600
+    assert items["drinking_water_litre"] == 100 * 3 * 2 # 600
+    assert items["medical_kit"] == (20 + 10) // 10 # 3
+    assert items["blanket"] == 100 * 1
+    assert items["hygiene_kit"] == (100 // 4) * 1 # 25
+    assert items["baby_supply_kit"] == 15 * 1 # 15
+
+def test_officer_overrides_stored():
+    inc_payload = {
+        "title": "Relief Override Test", "description": "Test", "incident_type": "fire",
+        "latitude": 11.0, "longitude": 77.0, "severity": "medium",
+        "affected_people": 10, "injured_people": 0, "vulnerable_people": 0
+    }
+    inc_id = client.post("/api/incidents/", json=inc_payload).json()["id"]
+    
+    req_payload = {
+        "support_duration_days": 1,
+        "total_people": 10,
+        "items": [
+            {"item_type": "food_packet", "requested_quantity": 50, "source_type": "officer_modified", "calculation_reason": "adjusted manually"}
+        ]
+    }
+    res = client.post(f"/api/incidents/{inc_id}/relief-requests", json=req_payload)
+    assert res.status_code == 201
+    data = res.json()
+    assert data["items"][0]["source_type"] == "officer_modified"
+    assert data["items"][0]["approved_quantity"] == 50
+
+def test_warehouse_creation_and_retrieval():
+    payload = {
+        "name": "Test Warehouse",
+        "latitude": 11.1,
+        "longitude": 77.1,
+        "maximum_dispatch_capacity": 500
+    }
+    res = client.post("/api/warehouses", json=payload)
+    assert res.status_code == 201
+    w_id = res.json()["id"]
+    
+    get_res = client.get(f"/api/warehouses/{w_id}")
+    assert get_res.status_code == 200
+    assert get_res.json()["name"] == "Test Warehouse"
+
+def test_inventory_creation_and_update():
+    payload = {
+        "item_type": "test_item",
+        "display_name": "Test Item",
+        "unit": "units",
+        "quantity_available": 100,
+        "reorder_level": 10,
+        "warehouse_id": 1
+    }
+    res = client.post("/api/warehouses/1/inventory", json=payload)
+    assert res.status_code == 201
+    inv_id = res.json()["id"]
+    
+    client.patch(f"/api/inventory/{inv_id}", json={"quantity_available": 200})
+    get_res = client.get("/api/warehouses/1/inventory")
+    items = get_res.json()
+    updated = next(i for i in items if i["id"] == inv_id)
+    assert updated["quantity_available"] == 200
+
+def test_missing_incident_404():
+    res = client.post("/api/incidents/9999/relief-demand/suggest")
+    assert res.status_code == 404
+
+def test_missing_warehouse_404():
+    res = client.get("/api/warehouses/9999")
+    assert res.status_code == 404
+
+def test_missing_relief_request_404():
+    res = client.get("/api/relief-requests/9999")
+    assert res.status_code == 404
+
+def test_single_source_recommendation():
+    # Use incident 1 and its relief demand
+    inc_payload = {
+        "title": "Single Source Test", "description": "Test", "incident_type": "fire",
+        "latitude": 11.0, "longitude": 76.95, "severity": "medium",
+        "affected_people": 5, "injured_people": 0, "vulnerable_people": 0
+    }
+    inc_id = client.post("/api/incidents/", json=inc_payload).json()["id"]
+    req_payload = {
+        "support_duration_days": 1,
+        "total_people": 5,
+        "items": [
+            {"item_type": "food_packet", "requested_quantity": 10, "source_type": "system_suggested", "calculation_reason": ""}
+        ]
+    }
+    req_id = client.post(f"/api/incidents/{inc_id}/relief-requests", json=req_payload).json()["id"]
+    
+    res = client.post(f"/api/relief-requests/{req_id}/recommendations")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["single_source_recommendations"]) > 0
+    top_rec = data["single_source_recommendations"][0]
+    assert top_rec["stock_coverage_percentage"] == 100.0
+
+def test_split_allocation_works():
+    # Request massive amount of food to force split
+    inc_payload = {
+        "title": "Split Test", "description": "Test", "incident_type": "fire",
+        "latitude": 11.0, "longitude": 76.95, "severity": "medium",
+        "affected_people": 0, "injured_people": 0, "vulnerable_people": 0
+    }
+    inc_id = client.post("/api/incidents/", json=inc_payload).json()["id"]
+    req_payload = {
+        "support_duration_days": 1,
+        "total_people": 0,
+        "items": [
+            {"item_type": "food_packet", "requested_quantity": 6000, "source_type": "system_suggested", "calculation_reason": ""}
+        ]
+    }
+    req_id = client.post(f"/api/incidents/{inc_id}/relief-requests", json=req_payload).json()["id"]
+    
+    res = client.post(f"/api/relief-requests/{req_id}/recommendations")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["split_allocation_plan"] is not None
+    assert data["split_allocation_plan"]["is_split"] == True
+
+def test_dispatch_approval_succeeds():
+    # Approve dispatch
+    req_payload = {
+        "support_duration_days": 1,
+        "total_people": 0,
+        "items": [
+            {"item_type": "baby_supply_kit", "requested_quantity": 5, "source_type": "system_suggested", "calculation_reason": ""}
+        ]
+    }
+    req_id = client.post("/api/incidents/1/relief-requests", json=req_payload).json()["id"]
+    
+    dispatch_payload = {
+        "warehouse_id": 1,
+        "vehicle_id": 1,
+        "items": [{"inventory_id": 0, "item_type": "baby_supply_kit", "allocated_quantity": 5, "unit": "kits"}],
+        "recommendation_score": 90.0,
+        "explanation": "Test"
+    }
+    res = client.post(f"/api/relief-requests/{req_id}/approve-dispatch", json=dispatch_payload)
+    assert res.status_code == 200
+    d_id = res.json()["id"]
+    
+    # Check inventory reservation
+    inv = client.get("/api/warehouses/1/inventory").json()
+    baby_kit = next(i for i in inv if i["item_type"] == "baby_supply_kit")
+    assert baby_kit["quantity_reserved"] >= 5 # Might be more if run multiple times
+
+    # Transition to dispatched
+    res = client.patch(f"/api/relief-dispatches/{d_id}/status?status=dispatched")
+    assert res.status_code == 200
+    
+    # Transition to delivered
+    res = client.patch(f"/api/relief-dispatches/{d_id}/status?status=delivered")
+    assert res.status_code == 200
+
+def test_cancelled_dispatch_releases_stock():
+    req_payload = {
+        "support_duration_days": 1,
+        "total_people": 0,
+        "items": [
+            {"item_type": "emergency_light", "requested_quantity": 2, "source_type": "system_suggested", "calculation_reason": ""}
+        ]
+    }
+    req_id = client.post("/api/incidents/1/relief-requests", json=req_payload).json()["id"]
+    
+    inv_before = client.get("/api/warehouses/1/inventory").json()
+    light_before = next(i for i in inv_before if i["item_type"] == "emergency_light")
+    
+    dispatch_payload = {
+        "warehouse_id": 1,
+        "vehicle_id": 1,
+        "items": [{"inventory_id": 0, "item_type": "emergency_light", "allocated_quantity": 2, "unit": "items"}],
+        "recommendation_score": 90.0,
+        "explanation": "Test"
+    }
+    d_id = client.post(f"/api/relief-requests/{req_id}/approve-dispatch", json=dispatch_payload).json()["id"]
+    
+    client.patch(f"/api/relief-dispatches/{d_id}/status?status=cancelled")
+    
+    inv_after = client.get("/api/warehouses/1/inventory").json()
+    light_after = next(i for i in inv_after if i["item_type"] == "emergency_light")
+    
+    assert light_before["quantity_reserved"] == light_after["quantity_reserved"]
+
+def test_negative_stock_rejected():
+    req_payload = {
+        "support_duration_days": 1,
+        "total_people": 0,
+        "items": [
+            {"item_type": "emergency_light", "requested_quantity": 999999, "source_type": "system_suggested", "calculation_reason": ""}
+        ]
+    }
+    req_id = client.post("/api/incidents/1/relief-requests", json=req_payload).json()["id"]
+    
+    dispatch_payload = {
+        "warehouse_id": 1,
+        "vehicle_id": 1,
+        "items": [{"inventory_id": 0, "item_type": "emergency_light", "allocated_quantity": 999999, "unit": "items"}],
+        "recommendation_score": 90.0,
+        "explanation": "Test"
+    }
+    res = client.post(f"/api/relief-requests/{req_id}/approve-dispatch", json=dispatch_payload)
+    assert res.status_code == 400
+    assert "Insufficient stock" in res.json()["detail"]
+
+def test_dashboard_metrics():
+    res = client.get("/api/relief/dashboard-summary")
+    assert res.status_code == 200
+    data = res.json()
+    assert "active_requests" in data
+    assert "dispatches_in_progress" in data
+    assert "warehouses_active" in data
+    assert "low_stock_items" in data
+    assert data["warehouses_active"] > 0
+
+def test_inventory_alerts():
+    res = client.get("/api/relief/inventory-alerts")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data) >= 0
+

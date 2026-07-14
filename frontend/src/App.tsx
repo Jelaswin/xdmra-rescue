@@ -1,17 +1,21 @@
 import { useEffect, useState } from 'react';
 import { api } from './services/api';
-import { DashboardSummary, Incident, RescueTeam } from './types';
+import { DashboardSummary, Incident, RescueTeam, Warehouse } from './types';
 import DashboardCards from './components/DashboardCards';
 import IncidentList from './components/IncidentList';
 import TeamList from './components/TeamList';
 import IncidentForm from './components/IncidentForm';
 import IncidentDecisionPanel from './components/IncidentDecisionPanel';
 import { OperationsMap } from './components/map/OperationsMap';
+import { ReliefManagementDashboard } from './components/ReliefManagementDashboard';
 
 function App() {
+  const [activeTab, setActiveTab] = useState<'rescue' | 'relief'>('rescue');
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [reliefSummary, setReliefSummary] = useState<any | null>(null);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [teams, setTeams] = useState<RescueTeam[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'error'>('checking');
@@ -23,15 +27,19 @@ function App() {
       await api.checkHealth();
       setBackendStatus('connected');
       
-      const [sumData, incData, teamData] = await Promise.all([
+      const [sumData, relSumData, incData, teamData, warehouseData] = await Promise.all([
         api.getDashboardSummary(),
+        api.getReliefDashboardSummary(),
         api.getIncidents(),
-        api.getTeams()
+        api.getTeams(),
+        api.getWarehouses()
       ]);
       
-      setSummary(sumData);
+      setSummary((sumData as any).data ? (sumData as any).data : sumData);
+      setReliefSummary(relSumData.data);
       setIncidents(incData);
       setTeams(teamData);
+      setWarehouses(warehouseData.data);
       setError(null);
     } catch (err: any) {
       setBackendStatus('error');
@@ -55,6 +63,20 @@ function App() {
             <h1 className="text-2xl font-bold tracking-tight">X-DMRA Rescue</h1>
             <p className="text-sm text-slate-400">An Explainable Dynamic Rescue-Team Allocation System for Disaster Response</p>
           </div>
+          <div className="flex space-x-4">
+            <button 
+              onClick={() => setActiveTab('rescue')} 
+              className={`px-4 py-2 rounded font-medium ${activeTab === 'rescue' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+            >
+              Rescue Operations
+            </button>
+            <button 
+              onClick={() => setActiveTab('relief')} 
+              className={`px-4 py-2 rounded font-medium ${activeTab === 'relief' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+            >
+              Relief Management
+            </button>
+          </div>
           <div className="flex items-center space-x-2">
             <span className="text-sm font-medium">Backend:</span>
             {backendStatus === 'checking' && <span className="text-yellow-400 text-sm">Checking...</span>}
@@ -71,37 +93,43 @@ function App() {
           </div>
         )}
 
-        <section>
-          <h2 className="text-xl font-semibold mb-4 text-slate-800 border-b pb-2">Operational Dashboard</h2>
-          <DashboardCards summary={summary} />
-          
-          <div className="mt-6 h-[400px] border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-            <OperationsMap incidents={incidents} teams={teams} />
-          </div>
-        </section>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-8">
+        {activeTab === 'rescue' ? (
+          <>
             <section>
-              <h2 className="text-xl font-semibold mb-4 text-slate-800 border-b pb-2">Active Incidents</h2>
-              <IncidentList incidents={incidents} onIncidentSelect={setSelectedIncident} />
+              <h2 className="text-xl font-semibold mb-4 text-slate-800 border-b pb-2">Operational Dashboard</h2>
+              <DashboardCards summary={summary} reliefSummary={reliefSummary} />
+              
+              <div className="mt-6 h-[400px] border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                <OperationsMap incidents={incidents} teams={teams} warehouses={warehouses} />
+              </div>
             </section>
 
-            <section>
-              <h2 className="text-xl font-semibold mb-4 text-slate-800 border-b pb-2">Rescue Teams</h2>
-              <TeamList teams={teams} />
-            </section>
-          </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-2 space-y-8">
+                <section>
+                  <h2 className="text-xl font-semibold mb-4 text-slate-800 border-b pb-2">Active Incidents</h2>
+                  <IncidentList incidents={incidents} onIncidentSelect={setSelectedIncident} />
+                </section>
 
-          <div className="lg:col-span-1">
-            <section className="sticky top-24">
-              <IncidentForm onIncidentCreated={handleIncidentCreated} />
-            </section>
-          </div>
-        </div>
+                <section>
+                  <h2 className="text-xl font-semibold mb-4 text-slate-800 border-b pb-2">Rescue Teams</h2>
+                  <TeamList teams={teams} />
+                </section>
+              </div>
+
+              <div className="lg:col-span-1">
+                <section className="sticky top-24">
+                  <IncidentForm onIncidentCreated={handleIncidentCreated} />
+                </section>
+              </div>
+            </div>
+          </>
+        ) : (
+          <ReliefManagementDashboard />
+        )}
       </main>
 
-      {selectedIncident && (
+      {selectedIncident && activeTab === 'rescue' && (
         <IncidentDecisionPanel
           incident={selectedIncident}
           onClose={() => setSelectedIncident(null)}

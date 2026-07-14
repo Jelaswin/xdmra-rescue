@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Incident, PriorityResult, TeamRecommendation, Allocation, PriorityComparisonResponse } from '../types';
 import { api } from '../services/api';
-import { ReallocationRecommendationResult, ReallocationEventResponse } from '../types';
+import { ReallocationRecommendationResult, ReallocationEventResponse, ReliefRequest, ReliefDemandSuggestion, ReliefAllocationEvaluation, ReliefRecommendation, SplitAllocationPlan } from '../types';
 
 interface Props {
   incident: Incident;
@@ -18,6 +18,14 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
   const [reallocationHistory, setReallocationHistory] = useState<ReallocationEventResponse[]>([]);
   const [simTriggerType, setSimTriggerType] = useState('route_blocked');
   const [simReason, setSimReason] = useState('Route blocked by debris');
+
+  const [activeSubTab, setActiveSubTab] = useState<'rescue' | 'relief'>('rescue');
+  const [reliefRequest, setReliefRequest] = useState<ReliefRequest | null>(null);
+  const [demandSuggestion, setDemandSuggestion] = useState<ReliefDemandSuggestion | null>(null);
+  const [reliefEval, setReliefEval] = useState<ReliefAllocationEvaluation | null>(null);
+  const [loadingRelief, setLoadingRelief] = useState(false);
+  const [reliefItems, setReliefItems] = useState<any[]>([]);
+
   
   const [loadingPriority, setLoadingPriority] = useState(false);
   const [loadingMl, setLoadingMl] = useState(false);
@@ -40,6 +48,22 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
         } catch (e) {
           console.error("Failed to load reallocation history", e);
         }
+
+        try {
+          const reqs = await api.getReliefRequests(incident.id);
+          if (reqs.data.length > 0) {
+            setReliefRequest(reqs.data[0]);
+            // Format items for the UI
+            setReliefItems(reqs.data[0].items.map((i: any) => ({
+              item_type: i.item_type,
+              quantity: i.approved_quantity,
+              unit: i.unit || 'units',
+              reason: i.calculation_reason,
+              source_type: i.source_type
+            })));
+          }
+        } catch(e) { console.error(e); }
+
         
         if (incident.priority_score !== null && incident.priority_level) {
           setPriorityResult({
@@ -179,6 +203,88 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
   };
 
 
+
+  const handleSuggestDemand = async () => {
+    setLoadingRelief(true);
+    try {
+      const res = await api.suggestReliefDemand(incident.id, 2); // 2 days support
+      setDemandSuggestion(res.data);
+      setReliefItems(res.data.suggested_items.map((i: any) => ({...i, source_type: 'system_suggested'})));
+    } catch(e: any) { setError(e.message); }
+    setLoadingRelief(false);
+  };
+
+  const handleConfirmRequest = async () => {
+    setLoadingRelief(true);
+    try {
+      const payload = {
+        support_duration_days: demandSuggestion?.support_duration_days || 2,
+        total_people: incident.affected_people,
+        items: reliefItems.map(i => ({
+          item_type: i.item_type,
+          requested_quantity: i.quantity,
+          source_type: i.source_type,
+          calculation_reason: i.reason
+        }))
+      };
+      const res = await api.createReliefRequest(incident.id, payload);
+      setReliefRequest(res.data);
+    } catch(e: any) { setError(e.message); }
+    setLoadingRelief(false);
+  };
+
+  const handleGetReliefRecs = async () => {
+    if (!reliefRequest) return;
+    setLoadingRelief(true);
+    try {
+      const res = await api.getReliefRecommendations(reliefRequest.id);
+      setReliefEval(res.data);
+    } catch(e: any) { setError(e.message); }
+    setLoadingRelief(false);
+  };
+
+  const handleApproveRelief = async (warehouseId: number, isSplit: boolean = false) => {
+    if (!reliefRequest) return;
+    if (!window.confirm("Approve this relief allocation?")) return;
+    setLoadingRelief(true);
+    try {
+      if (!isSplit) {
+        // Single source
+        const rec = reliefEval?.single_source_recommendations.find(r => r.warehouse_id === warehouseId);
+        const payload = {
+          warehouse_id: warehouseId,
+          items: reliefItems.filter(i => rec?.covered_items.includes(i.item_type)).map(i => ({
+            inventory_id: 0, // Backend resolves it for now or we ignore it in this mock
+            item_type: i.item_type,
+            allocated_quantity: i.quantity,
+            unit: i.unit
+          })),
+          recommendation_score: rec?.total_score,
+          explanation: rec?.explanation
+        };
+        await api.approveDispatch(reliefRequest.id, payload);
+      } else {
+        // Split source
+        for (const wh of reliefEval!.split_allocation_plan!.warehouses_involved) {
+           const payload = {
+            warehouse_id: wh.warehouse_id,
+            items: Object.keys(wh.provided_items).map(item_type => ({
+              inventory_id: 0, 
+              item_type,
+              allocated_quantity: wh.provided_items[item_type],
+              unit: 'units'
+            })),
+            explanation: wh.explanation
+          };
+          await api.approveDispatch(reliefRequest.id, payload);
+        }
+      }
+      alert("Dispatch Approved Successfully!");
+      onAllocationApproved();
+    } catch(e: any) { setError(e.message); }
+    setLoadingRelief(false);
+  };
+
   const getPriorityColor = (level: string) => {
     switch (level) {
       case 'critical': return 'bg-red-100 text-red-800 border-red-200';
@@ -201,6 +307,12 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
           </button>
         </div>
 
+
+        <div className="flex px-6 bg-slate-50 border-b border-slate-200 gap-4 pt-2">
+           <button onClick={() => setActiveSubTab('rescue')} className={`px-4 py-2 font-bold text-sm ${activeSubTab === 'rescue' ? 'border-b-2 border-blue-600 text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>Rescue Allocation</button>
+           <button onClick={() => setActiveSubTab('relief')} className={`px-4 py-2 font-bold text-sm ${activeSubTab === 'relief' ? 'border-b-2 border-purple-600 text-purple-700' : 'text-slate-500 hover:text-slate-700'}`}>Relief Supply</button>
+        </div>
+
         <div className="flex-1 overflow-y-auto p-6">
           {error && (
             <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-lg border border-red-200">
@@ -208,6 +320,8 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
             </div>
           )}
 
+          {activeSubTab === 'rescue' ? (
+          <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             {/* Incident Info */}
             <div className="border border-slate-200 rounded-lg p-4">
@@ -546,6 +660,126 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
                 ))}
               </div>
             </div>
+
+
+          </>
+          ) : (
+          <div className="space-y-6">
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+              <h3 className="font-bold text-purple-800 mb-2">Relief Demand Suggestion</h3>
+              {!demandSuggestion && !reliefRequest ? (
+                <div className="text-center py-4">
+                  <p className="text-sm text-purple-600 mb-3">Calculate estimated relief supplies required based on affected population.</p>
+                  <button onClick={handleSuggestDemand} disabled={loadingRelief} className="px-4 py-2 bg-purple-600 text-white rounded font-medium text-sm hover:bg-purple-700">
+                    {loadingRelief ? 'Calculating...' : 'Generate Demand'}
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <table className="w-full text-sm text-left mb-4 bg-white rounded">
+                    <thead className="bg-purple-100 text-purple-800">
+                      <tr>
+                        <th className="p-2">Item</th>
+                        <th className="p-2">Quantity</th>
+                        <th className="p-2">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reliefItems.map((item, idx) => (
+                        <tr key={idx} className="border-b">
+                          <td className="p-2 font-medium">{item.item_type.replace(/_/g, ' ')}</td>
+                          <td className="p-2">
+                            <input 
+                              type="number" 
+                              value={item.quantity} 
+                              disabled={!!reliefRequest}
+                              onChange={(e) => {
+                                const newItems = [...reliefItems];
+                                newItems[idx].quantity = parseInt(e.target.value);
+                                newItems[idx].source_type = 'officer_modified';
+                                setReliefItems(newItems);
+                              }}
+                              className="w-20 border rounded p-1" 
+                            /> {item.unit}
+                            {item.source_type === 'officer_modified' && <span className="text-xs text-orange-600 block">Modified</span>}
+                          </td>
+                          <td className="p-2 text-xs text-gray-600">{item.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {!reliefRequest && (
+                    <button onClick={handleConfirmRequest} disabled={loadingRelief} className="px-4 py-2 bg-purple-600 text-white rounded font-medium text-sm hover:bg-purple-700">
+                      Confirm Relief Request
+                    </button>
+                  )}
+                  {reliefRequest && (
+                    <span className="inline-block px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-bold">Request Confirmed</span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {reliefRequest && (
+              <div className="border border-slate-200 rounded-lg p-4">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-bold text-slate-800">Warehouse Recommendations</h3>
+                  <button onClick={handleGetReliefRecs} disabled={loadingRelief} className="px-4 py-2 bg-brand-primary text-white text-sm rounded hover:bg-blue-600">
+                    Generate Warehouse Options
+                  </button>
+                </div>
+
+                {reliefEval && (
+                  <div className="space-y-6">
+                    {/* Split Allocation Plan */}
+                    {reliefEval.split_allocation_plan && (
+                       <div className="bg-orange-50 border border-orange-200 rounded p-4">
+                         <h4 className="font-bold text-orange-800 mb-2">Recommended: Split Allocation Plan</h4>
+                         <p className="text-sm mb-3">{reliefEval.split_allocation_plan.explanation}</p>
+                         <div className="space-y-2 mb-4">
+                           {reliefEval.split_allocation_plan.warehouses_involved.map(w => (
+                             <div key={w.warehouse_id} className="bg-white p-2 rounded shadow-sm text-sm">
+                               <strong>{w.warehouse_name}</strong> (Distance: {w.distance_km}km) <br/>
+                               Provides: {Object.entries(w.provided_items).map(([k,v]) => `${k} (${v})`).join(', ')}
+                             </div>
+                           ))}
+                         </div>
+                         <button onClick={() => handleApproveRelief(0, true)} disabled={loadingRelief} className="px-4 py-2 bg-orange-600 text-white rounded text-sm hover:bg-orange-700 font-bold">
+                           Approve Split Plan
+                         </button>
+                       </div>
+                    )}
+
+                    {/* Single Sources */}
+                    <div>
+                      <h4 className="font-bold text-slate-700 mb-3">Single-Source Alternatives</h4>
+                      <div className="grid gap-4">
+                        {reliefEval.single_source_recommendations.map(rec => (
+                          <div key={rec.warehouse_id} className="border border-slate-200 p-3 rounded">
+                            <div className="flex justify-between items-start mb-2">
+                              <div>
+                                <h5 className="font-bold">#{rec.rank} {rec.warehouse_name}</h5>
+                                <p className="text-xs text-slate-600">Score: {rec.total_score} | Coverage: {rec.stock_coverage_percentage}% | Distance: {rec.distance_km}km</p>
+                              </div>
+                              <button onClick={() => handleApproveRelief(rec.warehouse_id, false)} disabled={loadingRelief} className="px-3 py-1 bg-emerald-600 text-white text-xs rounded font-bold hover:bg-emerald-700">
+                                Approve
+                              </button>
+                            </div>
+                            <p className="text-xs text-slate-700 mb-1"><strong>Reasoning:</strong> {rec.explanation}</p>
+                            <div className="text-xs">
+                              <span className="text-emerald-600 block">Pros: {rec.positive_reasons.join(', ')}</span>
+                              {rec.limitations.length > 0 && <span className="text-red-600 block">Cons: {rec.limitations.join(', ')}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          )}
 
         </div>
       </div>

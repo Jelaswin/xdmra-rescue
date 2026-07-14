@@ -151,4 +151,51 @@ export const api = {
     if (!response.ok) throw new Error('Failed to update team operational status');
     return response.json();
   }
+
+,
+  // Phase 6 Relief APIs
+  getWarehouses: async () => {
+    const res = await fetch(`${API_BASE_URL}/warehouses`);
+    return { data: await res.json() };
+  },
+  getWarehouseInventory: async (id: number) => {
+    const res = await fetch(`${API_BASE_URL}/warehouses/${id}/inventory`);
+    return { data: await res.json() };
+  },
+  getDeliveryVehicles: async () => {
+    const res = await fetch(`${API_BASE_URL}/delivery-vehicles`);
+    return { data: await res.json() };
+  },
+  suggestReliefDemand: async (incidentId: number, days: number = 1) => {
+    const res = await fetch(`${API_BASE_URL}/incidents/${incidentId}/relief-demand/suggest?support_duration_days=${days}`, { method: 'POST' });
+    return { data: await res.json() };
+  },
+  createReliefRequest: async (incidentId: number, data: any) => {
+    const res = await fetch(`${API_BASE_URL}/incidents/${incidentId}/relief-requests`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+    });
+    return { data: await res.json() };
+  },
+  getReliefRequests: async (incidentId: number) => {
+    const res = await fetch(`${API_BASE_URL}/incidents/${incidentId}/relief-requests`);
+    return { data: await res.json() };
+  },
+  getReliefRecommendations: async (requestId: number) => {
+    const res = await fetch(`${API_BASE_URL}/relief-requests/${requestId}/recommendations`, { method: 'POST' });
+    return { data: await res.json() };
+  },
+  approveDispatch: async (requestId: number, data: any) => {
+    const res = await fetch(`${API_BASE_URL}/relief-requests/${requestId}/approve-dispatch`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+    });
+    return { data: await res.json() };
+  },
+  getReliefDashboardSummary: async () => {
+    const res = await fetch(`${API_BASE_URL}/relief/dashboard-summary`);
+    return { data: await res.json() };
+  },
+  getInventoryAlerts: async () => {
+    const res = await fetch(`${API_BASE_URL}/relief/inventory-alerts`);
+    return { data: await res.json() };
+  }
 };

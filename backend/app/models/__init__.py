@@ -154,6 +154,7 @@ class RouteCondition(Base):
     id = Column(Integer, primary_key=True, index=True)
     incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=True)
     rescue_team_id = Column(Integer, ForeignKey("rescue_teams.id"), nullable=True)
+    warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=True)
     risk_level = Column(Enum(RouteRisk), nullable=False, default=RouteRisk.low)
     is_blocked = Column(Integer, default=0) # boolean stored as integer for sqlite compat 
     estimated_delay_minutes = Column(Integer, default=0)
@@ -177,3 +178,166 @@ class ReallocationEvent(Base):
     created_at = Column(DateTime, default=utcnow)
     approved_at = Column(DateTime, nullable=True)
     rejected_at = Column(DateTime, nullable=True)
+
+
+# --- Phase 6 Relief Models ---
+
+class WarehouseOperatingStatus(str, enum.Enum):
+    active = "active"
+    limited = "limited"
+    closed = "closed"
+    unavailable = "unavailable"
+
+class ReliefRequestStatus(str, enum.Enum):
+    draft = "draft"
+    confirmed = "confirmed"
+    recommended = "recommended"
+    partially_allocated = "partially_allocated"
+    allocated = "allocated"
+    dispatched = "dispatched"
+    completed = "completed"
+    cancelled = "cancelled"
+
+class ReliefSourceType(str, enum.Enum):
+    system_suggested = "system_suggested"
+    officer_entered = "officer_entered"
+    officer_modified = "officer_modified"
+
+class VehicleAvailability(str, enum.Enum):
+    available = "available"
+    assigned = "assigned"
+    unavailable = "unavailable"
+    maintenance = "maintenance"
+
+class DispatchStatus(str, enum.Enum):
+    approved = "approved"
+    preparing = "preparing"
+    dispatched = "dispatched"
+    delivered = "delivered"
+    cancelled = "cancelled"
+    failed = "failed"
+
+class InventoryMovementType(str, enum.Enum):
+    stock_added = "stock_added"
+    reserved = "reserved"
+    reservation_released = "reservation_released"
+    dispatched = "dispatched"
+    delivered = "delivered"
+    correction = "correction"
+    expired = "expired"
+
+class Warehouse(Base):
+    __tablename__ = "warehouses"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True, nullable=False)
+    location_name = Column(String, nullable=True)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    warehouse_type = Column(String, nullable=True)
+    operating_status = Column(Enum(WarehouseOperatingStatus), default=WarehouseOperatingStatus.active)
+    maximum_dispatch_capacity = Column(Integer, default=0)
+    current_dispatch_workload = Column(Integer, default=0)
+    contact_reference = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+class ReliefInventory(Base):
+    __tablename__ = "relief_inventory"
+    id = Column(Integer, primary_key=True, index=True)
+    warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=False)
+    item_type = Column(String, nullable=False)
+    display_name = Column(String, nullable=False)
+    unit = Column(String, nullable=False)
+    quantity_available = Column(Integer, default=0)
+    quantity_reserved = Column(Integer, default=0)
+    reorder_level = Column(Integer, default=0)
+    expiry_date = Column(DateTime, nullable=True)
+    batch_reference = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+class ReliefRequest(Base):
+    __tablename__ = "relief_requests"
+    id = Column(Integer, primary_key=True, index=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=False)
+    support_duration_days = Column(Integer, default=1)
+    status = Column(Enum(ReliefRequestStatus), default=ReliefRequestStatus.draft)
+    generated_by = Column(String, nullable=True)
+    total_people = Column(Integer, default=0)
+    notes = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+class ReliefRequestItem(Base):
+    __tablename__ = "relief_request_items"
+    id = Column(Integer, primary_key=True, index=True)
+    relief_request_id = Column(Integer, ForeignKey("relief_requests.id"), nullable=False)
+    item_type = Column(String, nullable=False)
+    requested_quantity = Column(Integer, default=0)
+    approved_quantity = Column(Integer, default=0)
+    source_type = Column(Enum(ReliefSourceType), default=ReliefSourceType.system_suggested)
+    calculation_reason = Column(String, nullable=True)
+
+class DeliveryVehicle(Base):
+    __tablename__ = "delivery_vehicles"
+    id = Column(Integer, primary_key=True, index=True)
+    warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=True)
+    name = Column(String, nullable=False)
+    vehicle_type = Column(String, nullable=True)
+    capacity_units = Column(Integer, default=0)
+    availability_status = Column(Enum(VehicleAvailability), default=VehicleAvailability.available)
+    current_workload = Column(Integer, default=0)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+class ReliefRecommendation(Base):
+    __tablename__ = "relief_recommendations"
+    id = Column(Integer, primary_key=True, index=True)
+    relief_request_id = Column(Integer, ForeignKey("relief_requests.id"), nullable=False)
+    warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=False)
+    recommendation_score = Column(Float, default=0.0)
+    stock_coverage_percentage = Column(Float, default=0.0)
+    distance_km = Column(Float, default=0.0)
+    route_risk = Column(String, nullable=True)
+    delivery_capacity_score = Column(Float, default=0.0)
+    workload_score = Column(Float, default=0.0)
+    explanation = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+class ReliefDispatch(Base):
+    __tablename__ = "relief_dispatches"
+    id = Column(Integer, primary_key=True, index=True)
+    relief_request_id = Column(Integer, ForeignKey("relief_requests.id"), nullable=False)
+    warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=False)
+    vehicle_id = Column(Integer, ForeignKey("delivery_vehicles.id"), nullable=True)
+    status = Column(Enum(DispatchStatus), default=DispatchStatus.approved)
+    dispatch_reference = Column(String, nullable=True)
+    total_allocated_units = Column(Integer, default=0)
+    recommendation_score = Column(Float, nullable=True)
+    explanation = Column(String, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    dispatched_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+class ReliefDispatchItem(Base):
+    __tablename__ = "relief_dispatch_items"
+    id = Column(Integer, primary_key=True, index=True)
+    relief_dispatch_id = Column(Integer, ForeignKey("relief_dispatches.id"), nullable=False)
+    inventory_id = Column(Integer, ForeignKey("relief_inventory.id"), nullable=False)
+    item_type = Column(String, nullable=False)
+    allocated_quantity = Column(Integer, default=0)
+    unit = Column(String, nullable=True)
+
+class InventoryMovement(Base):
+    __tablename__ = "inventory_movements"
+    id = Column(Integer, primary_key=True, index=True)
+    inventory_id = Column(Integer, ForeignKey("relief_inventory.id"), nullable=False)
+    relief_dispatch_id = Column(Integer, ForeignKey("relief_dispatches.id"), nullable=True)
+    movement_type = Column(Enum(InventoryMovementType), nullable=False)
+    quantity = Column(Integer, default=0)
+    quantity_before = Column(Integer, default=0)
+    quantity_after = Column(Integer, default=0)
+    reason = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
