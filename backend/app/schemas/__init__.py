@@ -80,12 +80,14 @@ class DashboardSummary(BaseModel):
     active_allocations: int
 
 class AllocationCreate(BaseModel):
-    rescue_team_id: int
+    rescue_team_id: Optional[int] = None
+    warehouse_id: Optional[int] = None
 
 class AllocationResponse(BaseModel):
     id: int
     incident_id: int
-    rescue_team_id: int
+    rescue_team_id: Optional[int] = None
+    warehouse_id: Optional[int] = None
     status: AllocationStatus
     recommendation_score: Optional[float] = None
     explanation: Optional[str] = None
@@ -218,7 +220,8 @@ class OperationalStatusUpdate(BaseModel):
     reason: Optional[str] = None
 
 class RouteConditionCreate(BaseModel):
-    rescue_team_id: int
+    rescue_team_id: Optional[int] = None
+    warehouse_id: Optional[int] = None
     risk_level: RouteRisk
     is_blocked: bool
     estimated_delay_minutes: int = 0
@@ -249,4 +252,172 @@ class ReallocationEventResponse(BaseModel):
     approved_at: Optional[datetime] = None
     rejected_at: Optional[datetime] = None
     
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Phase 6 Relief Schemas ---
+
+class WarehouseBase(BaseModel):
+    name: str
+    location_name: Optional[str] = None
+    latitude: float
+    longitude: float
+    warehouse_type: Optional[str] = None
+    maximum_dispatch_capacity: int = 0
+
+class WarehouseCreate(WarehouseBase):
+    pass
+
+class WarehouseResponse(WarehouseBase):
+    id: int
+    operating_status: str
+    current_dispatch_workload: int
+    contact_reference: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class ReliefInventoryBase(BaseModel):
+    item_type: str
+    display_name: str
+    unit: str
+    quantity_available: int = 0
+    reorder_level: int = 0
+    batch_reference: Optional[str] = None
+    expiry_date: Optional[datetime] = None
+
+class ReliefInventoryCreate(ReliefInventoryBase):
+    pass
+
+class ReliefInventoryResponse(ReliefInventoryBase):
+    id: int
+    warehouse_id: int
+    quantity_reserved: int
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class ReliefRequestItemBase(BaseModel):
+    item_type: str
+    requested_quantity: int
+    source_type: str
+    calculation_reason: Optional[str] = None
+
+class ReliefRequestBase(BaseModel):
+    support_duration_days: int = 1
+    total_people: int = 0
+    notes: Optional[str] = None
+
+class ReliefRequestCreate(ReliefRequestBase):
+    items: List[ReliefRequestItemBase]
+
+class ReliefRequestItemResponse(ReliefRequestItemBase):
+    id: int
+    relief_request_id: int
+    approved_quantity: int
+    model_config = ConfigDict(from_attributes=True)
+
+class ReliefRequestResponse(ReliefRequestBase):
+    id: int
+    incident_id: int
+    status: str
+    generated_by: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    items: List[ReliefRequestItemResponse] = []
+    # We will fetch items dynamically or via relationship
+    model_config = ConfigDict(from_attributes=True)
+
+class ReliefDemandSuggestionItem(BaseModel):
+    item_type: str
+    quantity: int
+    unit: str
+    reason: str
+
+class ReliefDemandSuggestion(BaseModel):
+    support_duration_days: int
+    suggested_items: List[ReliefDemandSuggestionItem]
+
+class DeliveryVehicleBase(BaseModel):
+    name: str
+    vehicle_type: Optional[str] = None
+    capacity_units: int
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+class DeliveryVehicleCreate(DeliveryVehicleBase):
+    warehouse_id: Optional[int] = None
+
+class DeliveryVehicleResponse(DeliveryVehicleBase):
+    id: int
+    warehouse_id: Optional[int] = None
+    availability_status: str
+    current_workload: int
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class ReliefRecommendationResponse(BaseModel):
+    warehouse_id: int
+    warehouse_name: str
+    rank: int
+    total_score: float
+    stock_coverage_percentage: float
+    covered_items: List[str]
+    missing_items: List[str]
+    distance_km: float
+    vehicle_availability: bool
+    route_risk: Optional[str] = None
+    positive_reasons: List[str]
+    limitations: List[str]
+    explanation: str
+
+class SplitAllocationWarehouse(BaseModel):
+    warehouse_id: int
+    warehouse_name: str
+    provided_items: Dict[str, int]
+    distance_km: float
+    explanation: str
+
+class SplitAllocationResponse(BaseModel):
+    is_split: bool
+    warehouses_involved: List[SplitAllocationWarehouse]
+    remaining_shortages: Dict[str, int]
+    explanation: str
+
+class ReliefAllocationEvaluationResponse(BaseModel):
+    single_source_recommendations: List[ReliefRecommendationResponse]
+    split_allocation_plan: Optional[SplitAllocationResponse] = None
+
+class ReliefDispatchItemBase(BaseModel):
+    inventory_id: int
+    item_type: str
+    allocated_quantity: int
+    unit: str
+
+class ReliefDispatchCreate(BaseModel):
+    warehouse_id: int
+    vehicle_id: Optional[int] = None
+    items: List[ReliefDispatchItemBase]
+    recommendation_score: Optional[float] = None
+    explanation: Optional[str] = None
+
+class ReliefDispatchItemResponse(ReliefDispatchItemBase):
+    id: int
+    relief_dispatch_id: int
+    model_config = ConfigDict(from_attributes=True)
+
+class ReliefDispatchResponse(BaseModel):
+    id: int
+    relief_request_id: int
+    warehouse_id: int
+    vehicle_id: Optional[int] = None
+    status: str
+    dispatch_reference: Optional[str] = None
+    total_allocated_units: int
+    recommendation_score: Optional[float] = None
+    explanation: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    dispatched_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
     model_config = ConfigDict(from_attributes=True)

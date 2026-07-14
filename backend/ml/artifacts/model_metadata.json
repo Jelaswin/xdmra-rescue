@@ -1,7 +1,7 @@
 {
   "model_name": "RandomForest",
   "model_version": "1.0.0",
-  "training_date": "2026-07-14T16:51:51.012459+00:00",
+  "training_date": "2026-07-14T18:19:29.773338+00:00",
   "feature_names": [
     "affected_people",
     "injured_people",

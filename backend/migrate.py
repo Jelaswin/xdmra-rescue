@@ -1,46 +1,36 @@
-import sqlite3
 import os
+import shutil
 from app.database import engine, Base
 from app.models import *
 
 def migrate():
+    db_path = 'xdmra.db'
+    backup_path = 'xdmra_phase6.db.bak'
+    
+    if os.path.exists(db_path):
+        print(f"Backing up {db_path} to {backup_path}...")
+        shutil.copy2(db_path, backup_path)
+        
+        # In this phase, we are doing a destructive wipe and re-seed 
+        # to ensure the complex supply-chain schema is clean.
+        print("Dropping existing tables...")
+        Base.metadata.drop_all(bind=engine)
+        
     print("Creating new tables...")
     Base.metadata.create_all(bind=engine)
     
-    db_path = 'xdmra.db'
-    if not os.path.exists(db_path):
-        print(f"DB {db_path} does not exist. Created new.")
-        return
-        
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    print("Altering allocations...")
-    new_cols = [
-        "superseded_by_allocation_id INTEGER",
-        "supersedes_allocation_id INTEGER",
-        "ended_at DATETIME",
-        "termination_reason VARCHAR",
-        "reallocation_reason VARCHAR",
-        "approved_by VARCHAR"
-    ]
-    for col in new_cols:
-        try:
-            cursor.execute(f"ALTER TABLE allocations ADD COLUMN {col}")
-        except Exception as e:
-            print(f"Column {col.split()[0]} might already exist: {e}")
-            
-    print("Recreating route_conditions...")
-    try:
-        cursor.execute("DROP TABLE route_conditions")
-    except Exception as e:
-        print("Failed to drop route_conditions:", e)
-        
-    conn.commit()
-    conn.close()
-    
-    Base.metadata.create_all(bind=engine)
     print("Migration finished successfully.")
+    
+    from app.database import SessionLocal
+    from app.seed import seed_db
+    
+    db = SessionLocal()
+    try:
+        print("Seeding database...")
+        seed_db(db)
+        print("Seeding complete.")
+    finally:
+        db.close()
 
 if __name__ == '__main__':
     migrate()

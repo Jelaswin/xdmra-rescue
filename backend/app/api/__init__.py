@@ -279,3 +279,278 @@ def update_team_operational_status(team_id: int, req: schemas.OperationalStatusU
     db.commit()
     db.refresh(team)
     return team
+
+
+# ==========================================
+# PHASE 6: RELIEF-SUPPLY ALLOCATION ENDPOINTS
+# ==========================================
+from app.models import (
+    Incident, Warehouse, ReliefInventory, ReliefRequest, ReliefRequestItem, DeliveryVehicle,
+    ReliefRecommendation, ReliefDispatch, ReliefDispatchItem, InventoryMovement,
+    WarehouseOperatingStatus, ReliefRequestStatus, ReliefSourceType, VehicleAvailability,
+    DispatchStatus, RouteCondition, RouteRisk
+)
+from app.schemas import (
+    WarehouseResponse, WarehouseCreate, ReliefInventoryResponse, ReliefInventoryCreate,
+    DeliveryVehicleResponse, DeliveryVehicleCreate, ReliefRequestResponse, ReliefRequestCreate,
+    ReliefDemandSuggestion, ReliefAllocationEvaluationResponse, ReliefDispatchResponse,
+    ReliefDispatchCreate, RouteConditionCreate
+)
+from app.services.relief_demand_service import generate_relief_demand
+from app.services.relief_allocation_service import evaluate_relief_allocation
+from app.services.inventory_service import approve_dispatch, transition_dispatch_status
+
+@router.get("/warehouses", response_model=List[WarehouseResponse])
+def get_warehouses(db: Session = Depends(get_db)):
+    return db.query(Warehouse).all()
+
+@router.post("/warehouses", response_model=WarehouseResponse, status_code=status.HTTP_201_CREATED)
+def create_warehouse(wh: WarehouseCreate, db: Session = Depends(get_db)):
+    new_wh = Warehouse(**wh.model_dump())
+    db.add(new_wh)
+    db.commit()
+    db.refresh(new_wh)
+    return new_wh
+
+@router.get("/warehouses/{warehouse_id}", response_model=WarehouseResponse)
+def get_warehouse(warehouse_id: int, db: Session = Depends(get_db)):
+    wh = db.query(Warehouse).filter(Warehouse.id == warehouse_id).first()
+    if not wh:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    return wh
+
+@router.patch("/warehouses/{warehouse_id}", response_model=WarehouseResponse)
+def update_warehouse(warehouse_id: int, payload: dict, db: Session = Depends(get_db)):
+    wh = db.query(Warehouse).filter(Warehouse.id == warehouse_id).first()
+    if not wh:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    for k, v in payload.items():
+        setattr(wh, k, v)
+    db.commit()
+    db.refresh(wh)
+    return wh
+
+@router.get("/warehouses/{warehouse_id}/inventory", response_model=List[ReliefInventoryResponse])
+def get_warehouse_inventory(warehouse_id: int, db: Session = Depends(get_db)):
+    return db.query(ReliefInventory).filter(ReliefInventory.warehouse_id == warehouse_id).all()
+
+@router.post("/warehouses/{warehouse_id}/inventory", response_model=ReliefInventoryResponse, status_code=status.HTTP_201_CREATED)
+def create_inventory(warehouse_id: int, payload: ReliefInventoryCreate, db: Session = Depends(get_db)):
+    inv = ReliefInventory(**payload.model_dump())
+    inv.warehouse_id = warehouse_id
+    db.add(inv)
+    db.commit()
+    db.refresh(inv)
+    return inv
+
+@router.patch("/inventory/{inventory_id}", response_model=ReliefInventoryResponse)
+def update_inventory(inventory_id: int, payload: dict, db: Session = Depends(get_db)):
+    inv = db.query(ReliefInventory).filter(ReliefInventory.id == inventory_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Inventory not found")
+    for k, v in payload.items():
+        setattr(inv, k, v)
+    db.commit()
+    db.refresh(inv)
+    return inv
+
+@router.get("/delivery-vehicles", response_model=List[DeliveryVehicleResponse])
+def get_vehicles(db: Session = Depends(get_db)):
+    return db.query(DeliveryVehicle).all()
+
+@router.post("/delivery-vehicles", response_model=DeliveryVehicleResponse, status_code=status.HTTP_201_CREATED)
+def create_vehicle(payload: DeliveryVehicleCreate, db: Session = Depends(get_db)):
+    v = DeliveryVehicle(**payload.model_dump())
+    db.add(v)
+    db.commit()
+    db.refresh(v)
+    return v
+
+@router.patch("/delivery-vehicles/{vehicle_id}", response_model=DeliveryVehicleResponse)
+def update_vehicle(vehicle_id: int, payload: dict, db: Session = Depends(get_db)):
+    v = db.query(DeliveryVehicle).filter(DeliveryVehicle.id == vehicle_id).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    for k, v_val in payload.items():
+        setattr(v, k, v_val)
+    db.commit()
+    db.refresh(v)
+    return v
+
+@router.post("/incidents/{incident_id}/relief-demand/suggest", response_model=ReliefDemandSuggestion)
+def suggest_relief_demand(incident_id: int, support_duration_days: int = 1, db: Session = Depends(get_db)):
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return generate_relief_demand(incident, support_duration_days)
+
+@router.post("/incidents/{incident_id}/relief-requests", response_model=ReliefRequestResponse, status_code=status.HTTP_201_CREATED)
+def create_relief_request(incident_id: int, payload: ReliefRequestCreate, db: Session = Depends(get_db)):
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+        
+    req = ReliefRequest(
+        incident_id=incident_id,
+        support_duration_days=payload.support_duration_days,
+        total_people=payload.total_people,
+        notes=payload.notes,
+        status=ReliefRequestStatus.draft
+    )
+    db.add(req)
+    db.flush()
+    
+    for item in payload.items:
+        req_item = ReliefRequestItem(
+            relief_request_id=req.id,
+            item_type=item.item_type,
+            requested_quantity=item.requested_quantity,
+            approved_quantity=item.requested_quantity, # Default to requested
+            source_type=item.source_type,
+            calculation_reason=item.calculation_reason
+        )
+        db.add(req_item)
+        
+    db.commit()
+    db.refresh(req)
+    # The response schema handles items dynamically if we set up relationship,
+    # but since we didn't add relationship to models directly we can fetch them.
+    req.items = db.query(ReliefRequestItem).filter(ReliefRequestItem.relief_request_id == req.id).all()
+    return req
+
+@router.get("/incidents/{incident_id}/relief-requests", response_model=List[ReliefRequestResponse])
+def get_relief_requests(incident_id: int, db: Session = Depends(get_db)):
+    reqs = db.query(ReliefRequest).filter(ReliefRequest.incident_id == incident_id).all()
+    for req in reqs:
+        req.items = db.query(ReliefRequestItem).filter(ReliefRequestItem.relief_request_id == req.id).all()
+    return reqs
+
+@router.get("/relief-requests/{request_id}", response_model=ReliefRequestResponse)
+def get_relief_request(request_id: int, db: Session = Depends(get_db)):
+    req = db.query(ReliefRequest).filter(ReliefRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Relief request not found")
+    req.items = db.query(ReliefRequestItem).filter(ReliefRequestItem.relief_request_id == req.id).all()
+    return req
+
+@router.patch("/relief-requests/{request_id}", response_model=ReliefRequestResponse)
+def update_relief_request(request_id: int, payload: dict, db: Session = Depends(get_db)):
+    req = db.query(ReliefRequest).filter(ReliefRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Relief request not found")
+    for k, v in payload.items():
+        setattr(req, k, v)
+    db.commit()
+    db.refresh(req)
+    req.items = db.query(ReliefRequestItem).filter(ReliefRequestItem.relief_request_id == req.id).all()
+    return req
+
+@router.post("/relief-requests/{request_id}/recommendations", response_model=ReliefAllocationEvaluationResponse)
+def get_relief_recommendations(request_id: int, db: Session = Depends(get_db)):
+    return evaluate_relief_allocation(db, request_id)
+
+@router.post("/relief-requests/{request_id}/approve-dispatch", response_model=ReliefDispatchResponse)
+def create_dispatch(request_id: int, payload: ReliefDispatchCreate, db: Session = Depends(get_db)):
+    # Inventory reservation is handled in the service
+    req = db.query(ReliefRequest).filter(ReliefRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+        
+    items_dict = [i.model_dump() for i in payload.items]
+    dispatch = approve_dispatch(
+        db=db,
+        request_id=request_id,
+        warehouse_id=payload.warehouse_id,
+        vehicle_id=payload.vehicle_id,
+        items_payload=items_dict,
+        recommendation_score=payload.recommendation_score,
+        explanation=payload.explanation
+    )
+    
+    # Update request status
+    req.status = ReliefRequestStatus.partially_allocated # Simplified
+    db.commit()
+    
+    dispatch.items = db.query(ReliefDispatchItem).filter(ReliefDispatchItem.relief_dispatch_id == dispatch.id).all()
+    return dispatch
+
+@router.get("/relief-requests/{request_id}/dispatches", response_model=List[ReliefDispatchResponse])
+def get_request_dispatches(request_id: int, db: Session = Depends(get_db)):
+    dispatches = db.query(ReliefDispatch).filter(ReliefDispatch.relief_request_id == request_id).all()
+    for d in dispatches:
+        d.items = db.query(ReliefDispatchItem).filter(ReliefDispatchItem.relief_dispatch_id == d.id).all()
+    return dispatches
+
+@router.patch("/relief-dispatches/{dispatch_id}/status", response_model=ReliefDispatchResponse)
+def update_dispatch_status(dispatch_id: int, status: str, db: Session = Depends(get_db)):
+    try:
+        new_status = DispatchStatus(status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid status")
+        
+    dispatch = transition_dispatch_status(db, dispatch_id, new_status)
+    dispatch.items = db.query(ReliefDispatchItem).filter(ReliefDispatchItem.relief_dispatch_id == dispatch.id).all()
+    return dispatch
+
+@router.post("/incidents/{incident_id}/warehouse-route-conditions")
+def create_warehouse_route_condition(incident_id: int, condition: RouteConditionCreate, db: Session = Depends(get_db)):
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+        
+    # Check if exists
+    rc = db.query(RouteCondition).filter(
+        RouteCondition.incident_id == incident_id,
+        RouteCondition.warehouse_id == condition.warehouse_id
+    ).first()
+    
+    if rc:
+        rc.risk_level = condition.risk_level
+        rc.is_blocked = condition.is_blocked
+        rc.estimated_delay_minutes = condition.estimated_delay_minutes
+        rc.description = condition.description
+    else:
+        rc = RouteCondition(
+            incident_id=incident_id,
+            warehouse_id=condition.warehouse_id,
+            risk_level=condition.risk_level,
+            is_blocked=condition.is_blocked,
+            estimated_delay_minutes=condition.estimated_delay_minutes,
+            description=condition.description
+        )
+        db.add(rc)
+    db.commit()
+    db.refresh(rc)
+    return rc
+
+@router.get("/relief/dashboard-summary")
+def get_relief_dashboard_summary(db: Session = Depends(get_db)):
+    active_requests = db.query(ReliefRequest).filter(ReliefRequest.status.in_([ReliefRequestStatus.confirmed, ReliefRequestStatus.partially_allocated])).count()
+    dispatches_in_progress = db.query(ReliefDispatch).filter(ReliefDispatch.status.in_([DispatchStatus.approved, DispatchStatus.preparing, DispatchStatus.dispatched])).count()
+    warehouses_active = db.query(Warehouse).filter(Warehouse.operating_status == WarehouseOperatingStatus.active).count()
+    
+    # Low stock
+    low_stock_items = db.query(ReliefInventory).filter(ReliefInventory.quantity_available <= ReliefInventory.reorder_level).count()
+    
+    return {
+        "active_requests": active_requests,
+        "dispatches_in_progress": dispatches_in_progress,
+        "warehouses_active": warehouses_active,
+        "low_stock_items": low_stock_items
+    }
+
+@router.get("/relief/inventory-alerts")
+def get_inventory_alerts(db: Session = Depends(get_db)):
+    low_stock = db.query(ReliefInventory).filter(ReliefInventory.quantity_available <= ReliefInventory.reorder_level).all()
+    res = []
+    for inv in low_stock:
+        wh = db.query(Warehouse).filter(Warehouse.id == inv.warehouse_id).first()
+        res.append({
+            "inventory_id": inv.id,
+            "warehouse_name": wh.name if wh else "Unknown",
+            "item": inv.display_name,
+            "available": inv.quantity_available,
+            "reorder_level": inv.reorder_level
+        })
+    return res
+

@@ -247,3 +247,153 @@ export interface ReallocationEventResponse {
   approved_at?: string;
   rejected_at?: string;
 }
+
+// ==========================================
+// PHASE 6: RELIEF-SUPPLY ALLOCATION TYPES
+// ==========================================
+
+export interface Warehouse {
+  id: number;
+  name: string;
+  location_name?: string;
+  latitude: number;
+  longitude: number;
+  warehouse_type?: string;
+  operating_status: string;
+  maximum_dispatch_capacity: number;
+  current_dispatch_workload: number;
+  contact_reference?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReliefInventory {
+  id: number;
+  warehouse_id: number;
+  item_type: string;
+  display_name: string;
+  unit: string;
+  quantity_available: number;
+  quantity_reserved: number;
+  reorder_level: number;
+  batch_reference?: string;
+  expiry_date?: string;
+  updated_at: string;
+}
+
+export interface DeliveryVehicle {
+  id: number;
+  warehouse_id?: number;
+  name: string;
+  vehicle_type?: string;
+  capacity_units: number;
+  availability_status: string;
+  current_workload: number;
+  latitude?: number;
+  longitude?: number;
+  updated_at: string;
+}
+
+export interface ReliefDemandSuggestionItem {
+  item_type: string;
+  quantity: number;
+  unit: string;
+  reason: string;
+}
+
+export interface ReliefDemandSuggestion {
+  support_duration_days: number;
+  suggested_items: ReliefDemandSuggestionItem[];
+}
+
+export interface ReliefRequestItem {
+  id?: number;
+  relief_request_id?: number;
+  item_type: string;
+  requested_quantity: number;
+  approved_quantity: number;
+  source_type: string;
+  calculation_reason?: string;
+}
+
+export interface ReliefRequest {
+  id: number;
+  incident_id: number;
+  support_duration_days: number;
+  total_people: number;
+  notes?: string;
+  status: string;
+  generated_by?: string;
+  created_at: string;
+  updated_at: string;
+  items: ReliefRequestItem[];
+}
+
+export interface ReliefRecommendation {
+  warehouse_id: number;
+  warehouse_name: string;
+  rank: number;
+  total_score: number;
+  stock_coverage_percentage: number;
+  covered_items: string[];
+  missing_items: string[];
+  distance_km: number;
+  vehicle_availability: boolean;
+  route_risk?: string;
+  positive_reasons: string[];
+  limitations: string[];
+  explanation: string;
+}
+
+export interface SplitAllocationWarehouse {
+  warehouse_id: number;
+  warehouse_name: string;
+  provided_items: Record<string, number>;
+  distance_km: number;
+  explanation: string;
+}
+
+export interface SplitAllocationPlan {
+  is_split: boolean;
+  warehouses_involved: SplitAllocationWarehouse[];
+  remaining_shortages: Record<string, number>;
+  explanation: string;
+}
+
+export interface ReliefAllocationEvaluation {
+  single_source_recommendations: ReliefRecommendation[];
+  split_allocation_plan?: SplitAllocationPlan;
+}
+
+export interface ReliefDispatchItem {
+  id?: number;
+  inventory_id: number;
+  item_type: string;
+  allocated_quantity: number;
+  unit: string;
+}
+
+export interface ReliefDispatch {
+  id: number;
+  relief_request_id: number;
+  warehouse_id: number;
+  vehicle_id?: number;
+  status: string;
+  dispatch_reference?: string;
+  total_allocated_units: number;
+  recommendation_score?: number;
+  explanation?: string;
+  approved_at?: string;
+  dispatched_at?: string;
+  completed_at?: string;
+  created_at: string;
+  updated_at: string;
+  items: ReliefDispatchItem[];
+}
+
+export interface ReliefDashboardSummary {
+  active_requests: number;
+  dispatches_in_progress: number;
+  warehouses_active: number;
+  low_stock_items: number;
+}
