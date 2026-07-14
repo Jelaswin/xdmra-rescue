@@ -130,18 +130,20 @@ def seed_db(db: Session):
     # Seed Route Conditions
     routes = [
         RouteCondition(
-            route_name="Main St Bridge",
-            origin_label="Downtown",
-            destination_label="Eastside",
+            incident_id=1,
+            rescue_team_id=1,
             risk_level=RouteRisk.high,
-            is_blocked=1
+            is_blocked=0,
+            estimated_delay_minutes=5,
+            description="Main St Bridge Traffic"
         ),
         RouteCondition(
-            route_name="Highway 101 North",
-            origin_label="South Sector",
-            destination_label="Downtown",
+            incident_id=2,
+            rescue_team_id=2,
             risk_level=RouteRisk.medium,
-            is_blocked=0
+            is_blocked=0,
+            estimated_delay_minutes=0,
+            description="Highway 101 North"
         )
     ]
 

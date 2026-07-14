@@ -89,6 +89,15 @@ class AllocationResponse(BaseModel):
     status: AllocationStatus
     recommendation_score: Optional[float] = None
     explanation: Optional[str] = None
+    
+    # Phase 5 Added fields
+    superseded_by_allocation_id: Optional[int] = None
+    supersedes_allocation_id: Optional[int] = None
+    ended_at: Optional[datetime] = None
+    termination_reason: Optional[str] = None
+    reallocation_reason: Optional[str] = None
+    approved_by: Optional[str] = None
+
     created_at: datetime
     updated_at: datetime
     
@@ -193,3 +202,51 @@ class MapTeam(BaseModel):
 class MapOverviewResponse(BaseModel):
     incidents: List[MapIncident]
     teams: List[MapTeam]
+
+# Phase 5 Reallocation Schemas
+class ReallocationEvaluateRequest(BaseModel):
+    trigger_type: str
+    trigger_description: Optional[str] = None
+    
+class ReallocationApprovalRequest(BaseModel):
+    replacement_team_id: int
+    trigger_type: str
+    reason: str
+
+class OperationalStatusUpdate(BaseModel):
+    availability_status: TeamAvailability
+    reason: Optional[str] = None
+
+class RouteConditionCreate(BaseModel):
+    rescue_team_id: int
+    risk_level: RouteRisk
+    is_blocked: bool
+    estimated_delay_minutes: int = 0
+    description: Optional[str] = None
+
+class ReallocationRecommendationResult(BaseModel):
+    reallocation_required: bool
+    trigger_type: str
+    current_team: Dict[str, Any]
+    reason: str
+    recommended_replacement: Optional[Dict[str, Any]] = None
+    explanation: str
+    alternatives: List[TeamRecommendation]
+
+class ReallocationEventResponse(BaseModel):
+    id: int
+    incident_id: int
+    previous_allocation_id: int
+    previous_team_id: int
+    replacement_team_id: Optional[int] = None
+    trigger_type: str
+    trigger_description: Optional[str] = None
+    old_recommendation_score: Optional[float] = None
+    new_recommendation_score: Optional[float] = None
+    explanation: Optional[str] = None
+    status: str
+    created_at: datetime
+    approved_at: Optional[datetime] = None
+    rejected_at: Optional[datetime] = None
+    
+    model_config = ConfigDict(from_attributes=True)

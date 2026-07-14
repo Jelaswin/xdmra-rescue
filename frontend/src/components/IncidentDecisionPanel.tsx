@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Incident, PriorityResult, TeamRecommendation, Allocation, PriorityComparisonResponse } from '../types';
 import { api } from '../services/api';
+import { ReallocationRecommendationResult, ReallocationEventResponse } from '../types';
 
 interface Props {
   incident: Incident;
@@ -13,6 +14,10 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
   const [mlComparison, setMlComparison] = useState<PriorityComparisonResponse | null>(null);
   const [recommendations, setRecommendations] = useState<TeamRecommendation[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
+  const [reallocationEval, setReallocationEval] = useState<ReallocationRecommendationResult | null>(null);
+  const [reallocationHistory, setReallocationHistory] = useState<ReallocationEventResponse[]>([]);
+  const [simTriggerType, setSimTriggerType] = useState('route_blocked');
+  const [simReason, setSimReason] = useState('Route blocked by debris');
   
   const [loadingPriority, setLoadingPriority] = useState(false);
   const [loadingMl, setLoadingMl] = useState(false);
@@ -28,6 +33,13 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
       try {
         const hist = await api.fetchIncidentAllocations(incident.id);
         setAllocations(hist);
+        
+        try {
+          const reallocs = await api.getReallocationHistory(incident.id);
+          setReallocationHistory(reallocs);
+        } catch (e) {
+          console.error("Failed to load reallocation history", e);
+        }
         
         if (incident.priority_score !== null && incident.priority_level) {
           setPriorityResult({
@@ -123,6 +135,49 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
       setApprovingTeam(null);
     }
   };
+
+  const handleSimulateUpdate = async () => {
+    setError(null);
+    try {
+      const activeAlloc = allocations.find(a => a.status === 'approved' || a.status === 'dispatched');
+      if (!activeAlloc) throw new Error("No active allocation found to simulate update on.");
+      
+      if (simTriggerType === 'route_blocked') {
+        await api.createRouteCondition(incident.id, {
+          rescue_team_id: activeAlloc.rescue_team_id,
+          risk_level: 'high',
+          is_blocked: true,
+          estimated_delay_minutes: 30,
+          description: simReason
+        });
+      } else {
+        await api.updateTeamStatus(activeAlloc.rescue_team_id, 'unavailable', simReason);
+      }
+      
+      const evalRes = await api.evaluateReallocation(incident.id, simTriggerType, simReason);
+      setReallocationEval(evalRes);
+      
+    } catch (e: any) {
+      setError(e.message || "Failed to simulate operational update");
+    }
+  };
+
+  const handleApproveReallocation = async () => {
+    if (!reallocationEval?.recommended_replacement) return;
+    setError(null);
+    try {
+      await api.approveReallocation(incident.id, reallocationEval.recommended_replacement.team_id, reallocationEval.trigger_type, reallocationEval.reason);
+      onAllocationApproved(); 
+      const hist = await api.fetchIncidentAllocations(incident.id);
+      setAllocations(hist);
+      const reallocs = await api.getReallocationHistory(incident.id);
+      setReallocationHistory(reallocs);
+      setReallocationEval(null); 
+    } catch (e: any) {
+       setError(e.message || "Failed to approve reallocation");
+    }
+  };
+
 
   const getPriorityColor = (level: string) => {
     switch (level) {
@@ -405,26 +460,92 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
             )}
           </div>
 
-          {/* Allocation History */}
-          {allocations.length > 0 && (
-            <div className="border border-slate-200 rounded-lg p-4">
-              <h3 className="font-semibold text-slate-800 mb-4">Allocation History</h3>
-              <div className="space-y-3">
-                {allocations.map(alloc => (
-                  <div key={alloc.id} className="flex items-center justify-between text-sm p-3 bg-slate-50 rounded border border-slate-100">
-                    <div>
-                      <p className="font-medium text-slate-800">Team ID: {alloc.rescue_team_id}</p>
-                      <p className="text-xs text-slate-500">{new Date(alloc.created_at).toLocaleString()}</p>
+          {/* Dynamic Reallocation / Simulation Section */}
+          {(allocations.some(a => a.status === 'approved' || a.status === 'dispatched')) && incident.status !== 'resolved' && (
+            <div className="mb-8 border border-slate-200 rounded-lg p-4 bg-orange-50">
+              <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-orange-500"></span>
+                Operational Update & Reallocation
+              </h3>
+              
+              <div className="flex gap-4 mb-4">
+                <select 
+                  value={simTriggerType} 
+                  onChange={e => setSimTriggerType(e.target.value)}
+                  className="px-3 py-2 border rounded-md text-sm"
+                >
+                  <option value="route_blocked">Route Blocked</option>
+                  <option value="team_unavailable">Team Unavailable/Breakdown</option>
+                  <option value="increased_workload">Increased Workload</option>
+                </select>
+                <input 
+                  type="text" 
+                  value={simReason}
+                  onChange={e => setSimReason(e.target.value)}
+                  className="flex-1 px-3 py-2 border rounded-md text-sm"
+                  placeholder="Reason (e.g. Debris on road)"
+                />
+                <button
+                  onClick={handleSimulateUpdate}
+                  className="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded hover:bg-orange-700 transition-colors"
+                >
+                  Simulate Update & Evaluate
+                </button>
+              </div>
+
+              {reallocationEval && (
+                <div className="bg-white p-4 rounded-md border border-orange-200 shadow-sm">
+                  <h4 className="font-semibold text-slate-800 mb-2">Reallocation Proposal</h4>
+                  <p className="text-sm text-slate-700 mb-4">{reallocationEval.explanation}</p>
+                  
+                  {reallocationEval.recommended_replacement ? (
+                    <div className="flex items-center justify-between bg-orange-50 p-3 rounded border border-orange-100">
+                      <div>
+                        <p className="font-bold text-slate-800">Recommend Replacement: {reallocationEval.recommended_replacement.team_name}</p>
+                        <p className="text-xs text-slate-600">Score: {reallocationEval.recommended_replacement.score} | Distance: {reallocationEval.recommended_replacement.distance_km} km</p>
+                      </div>
+                      <button
+                        onClick={handleApproveReallocation}
+                        className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700"
+                      >
+                        Approve Reallocation
+                      </button>
                     </div>
-                    <div className="text-right">
-                      <p className="font-medium text-slate-800 capitalize">{alloc.status}</p>
-                      <p className="text-xs text-slate-500">Score: {alloc.recommendation_score}</p>
+                  ) : (
+                    <div className="text-sm text-red-600 font-medium">
+                      No available replacements found!
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Allocation History */}
+            <div className="border border-slate-200 rounded-lg p-4 mb-8">
+              <h3 className="font-semibold text-slate-800 mb-4">Allocation Timeline</h3>
+              <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 before:to-transparent">
+                {allocations.map((alloc, i) => (
+                  <div key={alloc.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                    <div className="flex items-center justify-center w-10 h-10 rounded-full border border-white bg-slate-100 group-[.is-active]:bg-blue-500 text-slate-500 group-[.is-active]:text-emerald-50 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2">
+                      <span className="text-xs">{i+1}</span>
+                    </div>
+                    <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded border border-slate-200 bg-white shadow-sm">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="font-bold text-slate-800 capitalize">Team {alloc.rescue_team_id} {alloc.status}</div>
+                        <time className="text-xs text-slate-500">{new Date(alloc.created_at).toLocaleTimeString()}</time>
+                      </div>
+                      <div className="text-xs text-slate-600">
+                        {alloc.status === 'superseded' && alloc.termination_reason && (
+                          <span className="text-red-600">Failed: {alloc.termination_reason}</span>
+                        )}
+                        {alloc.explanation && <p className="mt-1">{alloc.explanation}</p>}
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-          )}
 
         </div>
       </div>

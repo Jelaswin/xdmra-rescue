@@ -28,17 +28,16 @@ def calculate_team_recommendations(incident: Incident, all_teams: List[RescueTea
         if team.availability_status != TeamAvailability.available:
             continue
             
-        # Check route blockages (simple naive match for hackathon phase)
-        # Assuming if a blocked route exists anywhere, it disqualifies, but let's check carefully.
-        # The prompt says "If no matching route condition exists, use a documented neutral/default route-risk value."
-        # For simplicity, we just check if any route condition is blocked and relates to the team (we skip complex graph mapping).
-        # We will assume a default of 'low' risk.
         route_risk = RouteRisk.low
         route_blocked = False
+        delay_minutes = 0
         
-        # We don't have true routing in this phase, so we'll simulate by checking if there's any globally blocked route that we might randomly apply or just skip for now unless matched.
-        # Let's do a basic check: if a route is blocked and has "Downtown" as destination and incident is in Downtown, block it.
-        # For generic purposes, since we don't have address geocoding, we will just use the default low risk unless explicitly mapped.
+        for rc in route_conditions:
+            if rc.incident_id == incident.id and rc.rescue_team_id == team.id:
+                route_risk = rc.risk_level
+                route_blocked = bool(rc.is_blocked)
+                delay_minutes = rc.estimated_delay_minutes
+                break
         
         if route_blocked:
             continue
@@ -77,6 +76,13 @@ def calculate_team_recommendations(incident: Incident, all_teams: List[RescueTea
         
         # Route Risk Penalty
         route_risk_score = 0.0 # penalty
+        if route_risk == RouteRisk.medium:
+            route_risk_score = 5.0
+        elif route_risk == RouteRisk.high:
+            route_risk_score = 15.0
+        
+        # Additional penalty for delay (e.g. 0.5 points per minute of delay)
+        route_risk_score += (delay_minutes * 0.5)
         
         total_score = skill_score + equip_score + capacity_score + workload_score + distance_score - route_risk_score
         
@@ -105,6 +111,16 @@ def calculate_team_recommendations(incident: Incident, all_teams: List[RescueTea
             positive_reasons.append("Team has no current workload.")
         elif team.current_workload > 5:
             limitations.append("Team currently has a high workload.")
+            
+        if route_risk == RouteRisk.low:
+            positive_reasons.append("Route risk is low and accessible.")
+        elif route_risk == RouteRisk.medium:
+            limitations.append("Route has medium risk/traffic.")
+        elif route_risk == RouteRisk.high:
+            limitations.append("Route has high risk.")
+            
+        if delay_minutes > 0:
+            limitations.append(f"Estimated delay of {delay_minutes} minutes.")
             
         explanation = f"{team.name} is recommended because they match {skill_match_pct:.0f}% of skills and are {dist_km:.1f} km away."
         if limitations:

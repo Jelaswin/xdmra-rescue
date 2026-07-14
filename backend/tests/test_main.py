@@ -551,3 +551,246 @@ def test_invalid_team_allocation():
     res = client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 3})
     assert res.status_code == 400
     assert "not available" in res.json()["detail"]
+
+# --- Phase 5 Reallocation Tests ---
+
+def test_p5_01_update_team_operational_status_success():
+    res = client.patch("/api/teams/1/operational-status", json={"availability_status": "unavailable", "reason": "Breakdown"})
+    assert res.status_code == 200
+    assert res.json()["availability_status"] == "unavailable"
+    # Revert for other tests
+    client.patch("/api/teams/1/operational-status", json={"availability_status": "available", "reason": ""})
+
+def test_p5_02_update_team_operational_status_missing():
+    res = client.patch("/api/teams/999/operational-status", json={"availability_status": "unavailable"})
+    assert res.status_code == 404
+
+def test_p5_03_create_route_condition():
+    res = client.post("/api/incidents/1/route-conditions", json={"rescue_team_id": 1, "risk_level": "high", "is_blocked": True, "estimated_delay_minutes": 30, "description": "Blocked"})
+    assert res.status_code == 200
+    assert res.json()["is_blocked"] is True
+
+def test_p5_04_create_route_condition_updates_existing():
+    client.post("/api/incidents/1/route-conditions", json={"rescue_team_id": 1, "risk_level": "high", "is_blocked": True})
+    res = client.post("/api/incidents/1/route-conditions", json={"rescue_team_id": 1, "risk_level": "low", "is_blocked": False})
+    assert res.status_code == 200
+    assert res.json()["is_blocked"] is False
+
+def test_p5_05_update_route_condition():
+    res = client.patch("/api/route-conditions/9999", json={"rescue_team_id": 1, "risk_level": "low", "is_blocked": False})
+    assert res.status_code == 404
+
+def test_p5_06_evaluate_missing_incident():
+    res = client.post("/api/incidents/999/evaluate-reallocation", json={"trigger_type": "test"})
+    assert res.status_code == 404
+
+def test_p5_07_evaluate_no_active_allocation():
+    payload = {"title": "No Alloc", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"})
+    assert res.status_code == 400
+    assert "No active allocation" in res.json()["detail"]
+
+def test_p5_08_evaluate_success():
+    payload = {"title": "Eval Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    
+    res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "route_blocked"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["reallocation_required"] is True
+    assert "recommended_replacement" in data
+
+def test_p5_09_evaluate_no_alternatives_left():
+    payload = {"title": "No Alt Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    
+    client.patch("/api/teams/2/operational-status", json={"availability_status": "unavailable"})
+    client.patch("/api/teams/4/operational-status", json={"availability_status": "unavailable"})
+    client.patch("/api/teams/5/operational-status", json={"availability_status": "unavailable"})
+    
+    res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "route_blocked"})
+    assert res.status_code == 200
+    assert res.json()["recommended_replacement"] is None
+
+    client.patch("/api/teams/2/operational-status", json={"availability_status": "available"})
+    client.patch("/api/teams/4/operational-status", json={"availability_status": "available"})
+    client.patch("/api/teams/5/operational-status", json={"availability_status": "available"})
+
+def test_p5_10_approve_missing_incident():
+    res = client.post("/api/incidents/999/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
+    assert res.status_code == 404
+
+def test_p5_11_approve_no_active_allocation():
+    payload = {"title": "No Alloc Approve", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    res = client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
+    assert res.status_code == 400
+
+def test_p5_12_approve_missing_team():
+    payload = {"title": "Approve Missing", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    res = client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 999, "trigger_type": "test", "reason": "test"})
+    assert res.status_code == 404
+
+def test_p5_13_approve_unavailable_team():
+    payload = {"title": "Approve Unavail", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    client.patch("/api/teams/2/operational-status", json={"availability_status": "unavailable"})
+    res = client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
+    assert res.status_code == 400
+    client.patch("/api/teams/2/operational-status", json={"availability_status": "available"})
+
+def test_p5_14_approve_blocked_route_team():
+    payload = {"title": "Approve Blocked", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    client.post(f"/api/incidents/{inc['id']}/route-conditions", json={"rescue_team_id": 2, "risk_level": "high", "is_blocked": True, "estimated_delay_minutes": 0})
+    res = client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
+    assert res.status_code == 400
+    client.post(f"/api/incidents/{inc['id']}/route-conditions", json={"rescue_team_id": 2, "risk_level": "low", "is_blocked": False, "estimated_delay_minutes": 0})
+
+def test_p5_15_approve_success_creates_new_allocation():
+    payload = {"title": "Approve Success", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    res = client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "route_blocked", "reason": "Debris"})
+    assert res.status_code == 200
+    assert res.json()["rescue_team_id"] == 2
+    assert res.json()["status"] == "approved"
+
+def test_p5_16_approve_success_supersedes_old():
+    payload = {"title": "Supersede Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    alloc1 = client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}).json()
+    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "route_blocked", "reason": "Debris"})
+    history = client.get(f"/api/incidents/{inc['id']}/allocations").json()
+    old_alloc = next(a for a in history if a["id"] == alloc1["id"])
+    assert old_alloc["status"] == "superseded"
+    assert old_alloc["reallocation_reason"] == "route_blocked"
+
+def test_p5_17_approve_releases_old_workload():
+    payload = {"title": "Workload Old", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    team1_before = client.get("/api/teams/1").json()
+    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "route_blocked", "reason": "Debris"})
+    team1_after = client.get("/api/teams/1").json()
+    assert team1_after["current_workload"] == team1_before["current_workload"] - 1
+
+def test_p5_18_approve_increases_new_workload():
+    payload = {"title": "Workload New", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    team2_before = client.get("/api/teams/2").json()
+    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "route_blocked", "reason": "Debris"})
+    team2_after = client.get("/api/teams/2").json()
+    assert team2_after["current_workload"] == team2_before["current_workload"] + 1
+
+def test_p5_19_approve_creates_event():
+    payload = {"title": "Event Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "team_unavailable", "reason": "Breakdown"})
+    
+    events = client.get(f"/api/incidents/{inc['id']}/reallocation-history").json()
+    assert len(events) == 1
+    assert events[0]["trigger_type"] == "team_unavailable"
+    assert events[0]["previous_team_id"] == 1
+    assert events[0]["replacement_team_id"] == 2
+
+def test_p5_20_history_endpoint_empty():
+    payload = {"title": "History Empty", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    events = client.get(f"/api/incidents/{inc['id']}/reallocation-history").json()
+    assert len(events) == 0
+
+def test_p5_21_evaluate_explanation_contains_trigger():
+    payload = {"title": "Expl Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "custom_trigger"})
+    assert "custom_trigger" in res.json()["explanation"]
+
+def test_p5_22_evaluate_alternative_list_matches_recommendation():
+    payload = {"title": "Alt List Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"})
+    assert len(res.json()["alternatives"]) > 0
+
+def test_p5_23_evaluate_excludes_current_team():
+    payload = {"title": "Excl Current", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"})
+    alts = res.json()["alternatives"]
+    for a in alts:
+        assert a["team_id"] != 1
+
+def test_p5_24_route_penalty_applied():
+    payload = {"title": "Penalty Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    
+    res1 = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"})
+    team2_score1 = next(a["total_score"] for a in res1.json()["alternatives"] if a["team_id"] == 2)
+    
+    client.post(f"/api/incidents/{inc['id']}/route-conditions", json={"rescue_team_id": 2, "risk_level": "high", "is_blocked": False, "estimated_delay_minutes": 10})
+    
+    res2 = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"})
+    team2_score2 = next(a["total_score"] for a in res2.json()["alternatives"] if a["team_id"] == 2)
+    
+    assert team2_score2 < team2_score1
+
+def test_p5_25_approve_sets_new_team_assigned():
+    payload = {"title": "Assign New Team", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
+    team2 = client.get("/api/teams/2").json()
+    assert team2["availability_status"] == "assigned"
+
+def test_p5_26_approve_sets_old_team_available():
+    payload = {"title": "Old Team Avail", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
+    team1 = client.get("/api/teams/1").json()
+    assert team1["availability_status"] == "available"
+
+def test_p5_27_approve_duplicate_rollback():
+    payload = {"title": "Rollback Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    
+    client.patch("/api/teams/2/operational-status", json={"availability_status": "unavailable"})
+    
+    res = client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
+    assert res.status_code == 400
+    
+    team1 = client.get("/api/teams/1").json()
+    assert team1["availability_status"] == "assigned"
+    
+    client.patch("/api/teams/2/operational-status", json={"availability_status": "available"})
+
+def test_p5_28_end_to_end_reallocation_flow():
+    payload = {"title": "E2E Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
+    inc = client.post("/api/incidents", json=payload).json()
+    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    
+    client.post(f"/api/incidents/{inc['id']}/route-conditions", json={"rescue_team_id": 1, "risk_level": "high", "is_blocked": True, "estimated_delay_minutes": 30})
+    
+    eval_res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "route_blocked"}).json()
+    assert eval_res["reallocation_required"] is True
+    
+    new_team_id = eval_res["recommended_replacement"]["team_id"]
+    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": new_team_id, "trigger_type": "route_blocked", "reason": "test"})
+    
+    history = client.get(f"/api/incidents/{inc['id']}/reallocation-history").json()
+    assert len(history) == 1
+    assert history[0]["replacement_team_id"] == new_team_id
