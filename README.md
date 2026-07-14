@@ -3,7 +3,7 @@
 An Explainable Dynamic Rescue-Team Allocation System for Disaster Response.
 
 ## Overview
-This is the X-DMRA Rescue project up to **Phase 3**. It includes a FastAPI backend and a React/Vite frontend for emergency incident reporting, rule-based priority engine, explainable rescue team allocation, and a custom Machine Learning incident priority predictor.
+This is the X-DMRA Rescue project up to **Phase 4**. It includes a FastAPI backend and a React/Vite frontend for emergency incident reporting, rule-based priority engine, explainable rescue team allocation, custom Machine Learning incident priority predictor, and Map/Location Management.
 
 **Note:** Relief-supply allocation, shelter allocation, maps, and real-time external APIs are not yet implemented.
 
@@ -13,8 +13,10 @@ This is the X-DMRA Rescue project up to **Phase 3**. It includes a FastAPI backe
 - Rule-based Incident Priority Engine.
 - Explainable Rescue Team Allocation Engine (Skill matching, capacity, workload, distance).
 - Custom Machine Learning Priority Predictor (Random Forest Classifier) using synthetic dataset.
+- Map and Location Management via OpenStreetMap Nominatim Geocoding.
+- Operations Dashboard Map with active incidents and rescue teams.
 - Interactive Side-by-side Decision Support Panel for Dispatch Officers.
-- 49 passing end-to-end backend tests.
+- 62 passing end-to-end backend tests.
 
 ## Tech Stack
 - **Frontend**: React, Vite, TypeScript, Tailwind CSS
@@ -79,6 +81,10 @@ x-dmra-rescue/
 - `GET /api/teams/{team_id}` - Get rescue team details
 - `GET /api/dashboard/summary` - Get summary statistics
 - `GET /api/ml/model-info` - ML model metadata
+- `GET /api/locations/search?q={query}` - Geocoding location search
+- `PATCH /api/incidents/{incident_id}/location` - Update incident location
+- `PATCH /api/teams/{team_id}/location` - Update team location
+- `GET /api/map/overview` - Map overview for incidents and teams
 
 ## Tests
 To run backend tests:
@@ -90,5 +96,5 @@ pytest
 
 ## Known Limitations
 - Real-time updates via WebSockets are not implemented yet.
-- Map view is absent.
 - Dynamic en-route reallocation is planned for future phases.
+- Rescue team location editing UI in the frontend is not implemented yet.
