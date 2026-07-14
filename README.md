@@ -3,20 +3,22 @@
 An Explainable Dynamic Rescue-Team Allocation System for Disaster Response.
 
 ## Overview
-This is the foundation phase of the X-DMRA Rescue project. It includes a FastAPI backend and a React/Vite frontend for emergency incident reporting and team monitoring. 
+This is the X-DMRA Rescue project up to **Phase 3**. It includes a FastAPI backend and a React/Vite frontend for emergency incident reporting, rule-based priority engine, explainable rescue team allocation, and a custom Machine Learning incident priority predictor.
 
-**Note:** Allocation AI, intelligent routing, and map views are planned for later phases and are not included in this foundation release.
+**Note:** Relief-supply allocation, shelter allocation, maps, and real-time external APIs are not yet implemented.
 
 ## Features Implemented
 - RESTful API with FastAPI and SQLite.
-- Realistic sample data seeding.
-- React-based dashboard for incidents and rescue teams.
-- Incident creation form with validation.
-- Responsive, clean interface.
+- Incident creation and severity scaling.
+- Rule-based Incident Priority Engine.
+- Explainable Rescue Team Allocation Engine (Skill matching, capacity, workload, distance).
+- Custom Machine Learning Priority Predictor (Random Forest Classifier) using synthetic dataset.
+- Interactive Side-by-side Decision Support Panel for Dispatch Officers.
+- 49 passing end-to-end backend tests.
 
 ## Tech Stack
 - **Frontend**: React, Vite, TypeScript, Tailwind CSS
-- **Backend**: Python 3, FastAPI, SQLAlchemy, SQLite (PostgreSQL compatible schema), Pytest
+- **Backend**: Python 3, FastAPI, SQLAlchemy, SQLite (PostgreSQL compatible schema), Pytest, Scikit-Learn, Pandas, Joblib
 
 ## Folder Structure
 ```text
@@ -68,9 +70,15 @@ x-dmra-rescue/
 - `GET /api/incidents` - List incidents
 - `POST /api/incidents` - Create a new incident
 - `GET /api/incidents/{incident_id}` - Get incident details
+- `POST /api/incidents/{incident_id}/calculate-priority` - Rule-based priority
+- `POST /api/incidents/{incident_id}/predict-priority-ml` - ML priority prediction
+- `GET /api/incidents/{incident_id}/team-recommendations` - Explainable allocation ranking
+- `POST /api/incidents/{incident_id}/allocations` - Approve allocation
+- `GET /api/incidents/{incident_id}/allocations` - Allocation history
 - `GET /api/teams` - List rescue teams
 - `GET /api/teams/{team_id}` - Get rescue team details
 - `GET /api/dashboard/summary` - Get summary statistics
+- `GET /api/ml/model-info` - ML model metadata
 
 ## Tests
 To run backend tests:
@@ -83,4 +91,4 @@ pytest
 ## Known Limitations
 - Real-time updates via WebSockets are not implemented yet.
 - Map view is absent.
-- Advanced AI allocation is not part of this release.
+- Dynamic en-route reallocation is planned for future phases.

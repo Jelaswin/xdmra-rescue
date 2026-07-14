@@ -19,6 +19,14 @@ export interface Incident {
   priority_score: number | null;
   priority_level: string | null;
   priority_reasons: string[];
+  
+  ml_priority_level: string | null;
+  ml_priority_confidence: number | null;
+  ml_model_name: string | null;
+  ml_model_version: string | null;
+  ml_predicted_at: string | null;
+  priority_agreement_status: string | null;
+  requires_priority_review: boolean;
 
   status: 'reported' | 'verified' | 'assigned' | 'in_progress' | 'resolved';
   created_at: string;
@@ -98,4 +106,34 @@ export interface Allocation {
   explanation: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ModelInfo {
+  loaded: boolean;
+  message?: string;
+  model_name?: string;
+  model_version?: string;
+  features?: string[];
+  classes?: string[];
+  evaluation_metrics?: Record<string, number>;
+  training_dataset_type?: string;
+  training_dataset_size?: number;
+}
+
+export interface MLPredictionResponse {
+  predicted_priority: string;
+  confidence: number;
+  class_probabilities: Record<string, number>;
+  model_name: string;
+  model_version: string;
+}
+
+export interface PriorityComparisonResponse {
+  rule_priority: string;
+  rule_score: number;
+  ml_priority: string;
+  ml_confidence: number;
+  agreement_status: string;
+  requires_officer_review: boolean;
+  comparison_message: string;
 }

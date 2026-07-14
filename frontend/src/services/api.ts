@@ -1,4 +1,4 @@
-import { Incident, IncidentCreateRequest, DashboardSummary, RescueTeam, PriorityResult, TeamRecommendation, Allocation } from '../types';
+import { Incident, IncidentCreateRequest, DashboardSummary, RescueTeam, PriorityResult, TeamRecommendation, Allocation, MLPredictionResponse, PriorityComparisonResponse, ModelInfo } from '../types';
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
@@ -67,6 +67,23 @@ export const api = {
   fetchIncidentAllocations: async (incidentId: number): Promise<Allocation[]> => {
     const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/allocations`);
     if (!response.ok) throw new Error('Failed to fetch allocations');
+    return response.json();
+  },
+
+  predictPriorityML: async (incidentId: number): Promise<PriorityComparisonResponse> => {
+    const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/predict-priority-ml`, {
+      method: 'POST'
+    });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Failed to predict ML priority');
+    }
+    return response.json();
+  },
+
+  getModelInfo: async (): Promise<ModelInfo> => {
+    const response = await fetch(`${API_BASE_URL}/ml/model-info`);
+    if (!response.ok) throw new Error('Failed to fetch ML model info');
     return response.json();
   }
 };

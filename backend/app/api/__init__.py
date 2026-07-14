@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+from datetime import datetime, timezone
 
 from app.database import get_db
 from app import schemas
+from app.models import Incident, Allocation
 from app.services import (
     get_dashboard_summary, 
     create_incident, 
@@ -15,7 +17,9 @@ from app.services import (
     get_recommendations_for_incident,
     create_allocation,
     get_allocations_for_incident,
-    get_allocation
+    get_allocation,
+    priority_predictor,
+    priority_service
 )
 
 router = APIRouter()
@@ -91,3 +95,62 @@ def read_team(team_id: int, db: Session = Depends(get_db)):
     if not db_team:
         raise HTTPException(status_code=404, detail="Team not found")
     return db_team
+
+# --- ML Endpoints Phase 3 ---
+
+@router.get("/ml/model-info", response_model=schemas.ModelInfoResponse)
+def get_model_info():
+    info = priority_predictor.get_model_info()
+    return info
+
+@router.post("/ml/retrain")
+def retrain_model():
+    # Only for development
+    try:
+        from ml.training.train_priority_model import train_models
+        train_models()
+        return {"status": "success", "message": "Model retrained successfully. Please restart server to load new model."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Retraining failed: {str(e)}")
+
+@router.post("/incidents/{incident_id}/predict-priority-ml", response_model=schemas.PriorityComparisonResponse)
+def predict_incident_priority_ml(incident_id: int, db: Session = Depends(get_db)):
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+        
+    # ML Prediction
+    ml_res = priority_predictor.predict_priority(incident)
+    if not ml_res:
+        raise HTTPException(status_code=503, detail="ML Model not available or failed to predict")
+        
+    # Rule-based calculation if not present
+    if not incident.priority_score or not incident.priority_level:
+        rule_res = priority_service.calculate_incident_priority(incident)
+        incident.priority_score = rule_res.priority_score
+        incident.priority_level = rule_res.priority_level
+        incident.priority_reasons = rule_res.reasons
+        
+    # Comparison
+    comparison = priority_predictor.compare_priorities(incident.priority_level, ml_res.predicted_priority)
+    
+    # Store ML prediction metadata in Incident
+    incident.ml_priority_level = ml_res.predicted_priority
+    incident.ml_priority_confidence = ml_res.confidence
+    incident.ml_model_name = ml_res.model_name
+    incident.ml_model_version = ml_res.model_version
+    incident.ml_predicted_at = datetime.now(timezone.utc)
+    incident.priority_agreement_status = comparison["agreement_status"]
+    incident.requires_priority_review = int(comparison["requires_officer_review"])
+    
+    db.commit()
+    
+    return schemas.PriorityComparisonResponse(
+        rule_priority=incident.priority_level,
+        rule_score=incident.priority_score,
+        ml_priority=ml_res.predicted_priority,
+        ml_confidence=ml_res.confidence,
+        agreement_status=comparison["agreement_status"],
+        requires_officer_review=comparison["requires_officer_review"],
+        comparison_message=comparison["comparison_message"]
+    )

@@ -1,0 +1,31 @@
+{
+  "model_name": "RandomForest",
+  "model_version": "1.0.0",
+  "training_date": "2026-07-14T16:19:13.734909+00:00",
+  "feature_names": [
+    "affected_people",
+    "injured_people",
+    "trapped_people",
+    "vulnerable_people",
+    "children_count",
+    "elderly_count",
+    "waiting_time_hours",
+    "incident_type",
+    "severity"
+  ],
+  "class_names": [
+    "critical",
+    "high",
+    "low",
+    "medium"
+  ],
+  "training_size": 2195,
+  "test_size": 549,
+  "best_metrics": {
+    "accuracy": 0.9381,
+    "macro_precision": 0.9385,
+    "macro_recall": 0.938,
+    "macro_f1": 0.9376
+  },
+  "random_seed": 42
+}
