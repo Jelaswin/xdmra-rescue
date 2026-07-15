@@ -341,3 +341,154 @@ class InventoryMovement(Base):
     quantity_after = Column(Integer, default=0)
     reason = Column(String, nullable=True)
     created_at = Column(DateTime, default=utcnow)
+
+# --- Phase 7 Shelter Allocation Models ---
+
+class ShelterOperatingStatus(str, enum.Enum):
+    open = "open"
+    limited = "limited"
+    full = "full"
+    closed = "closed"
+    unavailable = "unavailable"
+
+class ShelterRequestStatus(str, enum.Enum):
+    draft = "draft"
+    confirmed = "confirmed"
+    recommended = "recommended"
+    partially_allocated = "partially_allocated"
+    allocated = "allocated"
+    in_transit = "in_transit"
+    admitted = "admitted"
+    completed = "completed"
+    cancelled = "cancelled"
+
+class ShelterReservationStatus(str, enum.Enum):
+    approved = "approved"
+    preparing = "preparing"
+    in_transit = "in_transit"
+    admitted = "admitted"
+    cancelled = "cancelled"
+    completed = "completed"
+    failed = "failed"
+
+class ShelterCapacityMovementType(str, enum.Enum):
+    reserved = "reserved"
+    reservation_released = "reservation_released"
+    admitted = "admitted"
+    discharged = "discharged"
+    correction = "correction"
+    transferred = "transferred"
+
+class EmergencyShelter(Base):
+    __tablename__ = "emergency_shelters"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True, nullable=False)
+    shelter_type = Column(String, nullable=True)
+    location_name = Column(String, nullable=True)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    operating_status = Column(Enum(ShelterOperatingStatus), default=ShelterOperatingStatus.open)
+    
+    total_capacity = Column(Integer, default=0)
+    occupied_capacity = Column(Integer, default=0)
+    reserved_capacity = Column(Integer, default=0)
+    maximum_daily_intake = Column(Integer, default=0)
+    current_intake_workload = Column(Integer, default=0)
+    
+    has_medical_support = Column(Integer, default=0) # boolean
+    has_accessibility_support = Column(Integer, default=0)
+    has_women_child_safe_area = Column(Integer, default=0)
+    has_food = Column(Integer, default=0)
+    has_drinking_water = Column(Integer, default=0)
+    has_power_backup = Column(Integer, default=0)
+    has_sanitation = Column(Integer, default=0)
+    supports_long_term_stay = Column(Integer, default=0)
+    
+    contact_reference = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+class ShelterRequest(Base):
+    __tablename__ = "shelter_requests"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=False)
+    total_displaced_people = Column(Integer, default=0)
+    adults = Column(Integer, default=0)
+    children = Column(Integer, default=0)
+    elderly_people = Column(Integer, default=0)
+    injured_people = Column(Integer, default=0)
+    accessibility_required = Column(Integer, default=0)
+    pregnant_women = Column(Integer, default=0)
+    medical_observation_required = Column(Integer, default=0)
+    household_count = Column(Integer, default=0)
+    expected_stay_days = Column(Integer, default=1)
+    status = Column(Enum(ShelterRequestStatus), default=ShelterRequestStatus.draft)
+    notes = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+class ShelterRecommendation(Base):
+    __tablename__ = "shelter_recommendations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    shelter_request_id = Column(Integer, ForeignKey("shelter_requests.id"), nullable=False)
+    shelter_id = Column(Integer, ForeignKey("emergency_shelters.id"), nullable=False)
+    recommendation_score = Column(Float, default=0.0)
+    available_capacity = Column(Integer, default=0)
+    proposed_people_count = Column(Integer, default=0)
+    distance_km = Column(Float, default=0.0)
+    capacity_score = Column(Float, default=0.0)
+    distance_score = Column(Float, default=0.0)
+    medical_support_score = Column(Float, default=0.0)
+    vulnerability_support_score = Column(Float, default=0.0)
+    utility_score = Column(Float, default=0.0)
+    overcrowding_risk_score = Column(Float, default=0.0)
+    route_risk = Column(String, nullable=True)
+    explanation = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+class ShelterReservation(Base):
+    __tablename__ = "shelter_reservations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    shelter_request_id = Column(Integer, ForeignKey("shelter_requests.id"), nullable=False)
+    shelter_id = Column(Integer, ForeignKey("emergency_shelters.id"), nullable=False)
+    reserved_people = Column(Integer, default=0)
+    status = Column(Enum(ShelterReservationStatus), default=ShelterReservationStatus.approved)
+    recommendation_score = Column(Float, nullable=True)
+    explanation = Column(String, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    admitted_at = Column(DateTime, nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+class ShelterCapacityMovement(Base):
+    __tablename__ = "shelter_capacity_movements"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    shelter_id = Column(Integer, ForeignKey("emergency_shelters.id"), nullable=False)
+    shelter_reservation_id = Column(Integer, ForeignKey("shelter_reservations.id"), nullable=True)
+    movement_type = Column(Enum(ShelterCapacityMovementType), nullable=False)
+    people_count = Column(Integer, default=0)
+    occupied_before = Column(Integer, default=0)
+    occupied_after = Column(Integer, default=0)
+    reserved_before = Column(Integer, default=0)
+    reserved_after = Column(Integer, default=0)
+    reason = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+class ShelterRouteCondition(Base):
+    __tablename__ = "shelter_route_conditions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=False)
+    shelter_id = Column(Integer, ForeignKey("emergency_shelters.id"), nullable=False)
+    risk_level = Column(Enum(RouteRisk), nullable=False, default=RouteRisk.low)
+    is_blocked = Column(Integer, default=0) # bool
+    estimated_delay_minutes = Column(Integer, default=0)
+    description = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

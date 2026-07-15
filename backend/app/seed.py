@@ -1,5 +1,10 @@
 from sqlalchemy.orm import Session
-from app.models import Warehouse, ReliefInventory, DeliveryVehicle, WarehouseOperatingStatus, VehicleAvailability, Incident, RescueTeam, RouteCondition, IncidentSeverity, IncidentStatus, TeamAvailability, RouteRisk, LocationAccuracy, LocationSource
+from app.models import (
+    Warehouse, ReliefInventory, DeliveryVehicle, WarehouseOperatingStatus, 
+    VehicleAvailability, Incident, RescueTeam, RouteCondition, IncidentSeverity, 
+    IncidentStatus, TeamAvailability, RouteRisk, LocationAccuracy, LocationSource,
+    EmergencyShelter, ShelterOperatingStatus, ShelterRouteCondition
+)
 
 def seed_db(db: Session):
     # Check if we already seeded to ensure idempotency
@@ -246,3 +251,94 @@ def seed_db(db: Session):
     db.add_all(vehicles)
     db.commit()
 
+    # Seed Emergency Shelters
+    shelters = [
+        EmergencyShelter(
+            name="Codissia Trade Fair Complex",
+            shelter_type="Large Event Space",
+            location_name="Avinashi Road",
+            latitude=11.0289,
+            longitude=77.0270,
+            operating_status=ShelterOperatingStatus.open,
+            total_capacity=5000,
+            maximum_daily_intake=1000,
+            has_medical_support=1,
+            has_accessibility_support=1,
+            has_women_child_safe_area=1,
+            has_food=1,
+            has_drinking_water=1,
+            has_power_backup=1,
+            has_sanitation=1,
+            supports_long_term_stay=1
+        ),
+        EmergencyShelter(
+            name="Government College of Technology (GCT)",
+            shelter_type="Educational Institution",
+            location_name="Thadagam Road",
+            latitude=11.0180,
+            longitude=76.9360,
+            operating_status=ShelterOperatingStatus.open,
+            total_capacity=1500,
+            maximum_daily_intake=400,
+            has_medical_support=1,
+            has_accessibility_support=1,
+            has_women_child_safe_area=1,
+            has_food=1,
+            has_drinking_water=1,
+            has_power_backup=1,
+            has_sanitation=1,
+            supports_long_term_stay=0
+        ),
+        EmergencyShelter(
+            name="PSG College of Arts and Science",
+            shelter_type="Educational Institution",
+            location_name="Civil Aerodrome Post",
+            latitude=11.0312,
+            longitude=77.0374,
+            operating_status=ShelterOperatingStatus.open,
+            total_capacity=2000,
+            maximum_daily_intake=500,
+            has_medical_support=1,
+            has_accessibility_support=1,
+            has_women_child_safe_area=1,
+            has_food=1,
+            has_drinking_water=1,
+            has_power_backup=1,
+            has_sanitation=1,
+            supports_long_term_stay=1
+        ),
+        EmergencyShelter(
+            name="Corporation Community Hall, RS Puram",
+            shelter_type="Community Center",
+            location_name="RS Puram",
+            latitude=11.0094,
+            longitude=76.9472,
+            operating_status=ShelterOperatingStatus.open,
+            total_capacity=300,
+            maximum_daily_intake=100,
+            has_medical_support=0,
+            has_accessibility_support=0,
+            has_women_child_safe_area=1,
+            has_food=1,
+            has_drinking_water=1,
+            has_power_backup=0,
+            has_sanitation=1,
+            supports_long_term_stay=0
+        )
+    ]
+    db.add_all(shelters)
+    db.commit()
+
+    # Seed Shelter Route Conditions (Codissia to Flood is high risk, others low)
+    shelter_routes = [
+        ShelterRouteCondition(
+            incident_id=1,
+            shelter_id=1, # Codissia
+            risk_level=RouteRisk.high,
+            is_blocked=0,
+            estimated_delay_minutes=30,
+            description="Avinashi Road Waterlogging"
+        )
+    ]
+    db.add_all(shelter_routes)
+    db.commit()
