@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Incident, PriorityResult, TeamRecommendation, Allocation, PriorityComparisonResponse } from '../types';
 import { api } from '../services/api';
 import { ReallocationRecommendationResult, ReallocationEventResponse, ReliefRequest, ReliefDemandSuggestion, ReliefAllocationEvaluation, ReliefRecommendation, SplitAllocationPlan } from '../types';
+import { IncidentShelterPanel } from './IncidentShelterPanel';
 
 interface Props {
   incident: Incident;
@@ -19,7 +20,7 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
   const [simTriggerType, setSimTriggerType] = useState('route_blocked');
   const [simReason, setSimReason] = useState('Route blocked by debris');
 
-  const [activeSubTab, setActiveSubTab] = useState<'rescue' | 'relief'>('rescue');
+  const [activeSubTab, setActiveSubTab] = useState<'rescue' | 'relief' | 'shelter'>('rescue');
   const [reliefRequest, setReliefRequest] = useState<ReliefRequest | null>(null);
   const [demandSuggestion, setDemandSuggestion] = useState<ReliefDemandSuggestion | null>(null);
   const [reliefEval, setReliefEval] = useState<ReliefAllocationEvaluation | null>(null);
@@ -311,6 +312,7 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
         <div className="flex px-6 bg-slate-50 border-b border-slate-200 gap-4 pt-2">
            <button onClick={() => setActiveSubTab('rescue')} className={`px-4 py-2 font-bold text-sm ${activeSubTab === 'rescue' ? 'border-b-2 border-blue-600 text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>Rescue Allocation</button>
            <button onClick={() => setActiveSubTab('relief')} className={`px-4 py-2 font-bold text-sm ${activeSubTab === 'relief' ? 'border-b-2 border-purple-600 text-purple-700' : 'text-slate-500 hover:text-slate-700'}`}>Relief Supply</button>
+           <button onClick={() => setActiveSubTab('shelter')} className={`px-4 py-2 font-bold text-sm ${activeSubTab === 'shelter' ? 'border-b-2 border-emerald-600 text-emerald-700' : 'text-slate-500 hover:text-slate-700'}`}>Shelter Allocation</button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -663,7 +665,7 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
 
 
           </>
-          ) : (
+          ) : activeSubTab === 'relief' ? (
           <div className="space-y-6">
             <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
               <h3 className="font-bold text-purple-800 mb-2">Relief Demand Suggestion</h3>
@@ -779,7 +781,11 @@ export default function IncidentDecisionPanel({ incident, onAllocationApproved, 
               </div>
             )}
           </div>
-          )}
+          ) : activeSubTab === 'shelter' ? (
+            <div className="p-4">
+               <IncidentShelterPanel incident={incident} onAllocationApproved={onAllocationApproved} />
+            </div>
+          ) : null}
 
         </div>
       </div>

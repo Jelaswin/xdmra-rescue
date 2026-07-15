@@ -197,5 +197,31 @@ export const api = {
   getInventoryAlerts: async () => {
     const res = await fetch(`${API_BASE_URL}/relief/inventory-alerts`);
     return { data: await res.json() };
+  },
+
+  // Phase 7 Shelter APIs
+  getShelters: async () => {
+    const res = await fetch(`${API_BASE_URL}/shelters`);
+    return { data: await res.json() };
+  },
+  getShelterDashboardSummary: async () => {
+    const res = await fetch(`${API_BASE_URL}/shelter/dashboard-summary`);
+    return { data: await res.json() };
+  },
+  createShelterRequest: async (incidentId: number, data: any) => {
+    const res = await fetch(`${API_BASE_URL}/incidents/${incidentId}/shelter-requests`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+    });
+    return { data: await res.json() };
+  },
+  getShelterRecommendations: async (requestId: number) => {
+    const res = await fetch(`${API_BASE_URL}/shelter-requests/${requestId}/recommendations`, { method: 'POST' });
+    return { data: await res.json() };
+  },
+  approveShelterReservations: async (requestId: number, data: any) => {
+    const res = await fetch(`${API_BASE_URL}/shelter-requests/${requestId}/approve-reservations`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+    });
+    return { data: await res.json() };
   }
 };

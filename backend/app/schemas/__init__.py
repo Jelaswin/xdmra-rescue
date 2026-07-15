@@ -421,3 +421,204 @@ class ReliefDispatchResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+# --- Phase 7 Shelter Schemas ---
+
+class EmergencyShelterBase(BaseModel):
+    name: str
+    shelter_type: Optional[str] = None
+    location_name: Optional[str] = None
+    latitude: float
+    longitude: float
+    operating_status: str = "open"
+    total_capacity: int = 0
+    maximum_daily_intake: int = 0
+    has_medical_support: int = 0
+    has_accessibility_support: int = 0
+    has_women_child_safe_area: int = 0
+    has_food: int = 0
+    has_drinking_water: int = 0
+    has_power_backup: int = 0
+    has_sanitation: int = 0
+    supports_long_term_stay: int = 0
+    contact_reference: Optional[str] = None
+
+class EmergencyShelterCreate(EmergencyShelterBase):
+    pass
+
+class EmergencyShelterUpdate(BaseModel):
+    operating_status: Optional[str] = None
+    has_medical_support: Optional[int] = None
+    has_accessibility_support: Optional[int] = None
+    has_women_child_safe_area: Optional[int] = None
+    has_food: Optional[int] = None
+    has_drinking_water: Optional[int] = None
+    has_power_backup: Optional[int] = None
+    has_sanitation: Optional[int] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    occupied_capacity: Optional[int] = None # For dev controls
+
+class EmergencyShelterResponse(EmergencyShelterBase):
+    id: int
+    occupied_capacity: int
+    reserved_capacity: int
+    current_intake_workload: int
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class ShelterRequestBase(BaseModel):
+    total_displaced_people: int = 0
+    adults: int = 0
+    children: int = 0
+    elderly_people: int = 0
+    injured_people: int = 0
+    accessibility_required: int = 0
+    pregnant_women: int = 0
+    medical_observation_required: int = 0
+    household_count: int = 0
+    expected_stay_days: int = 1
+    notes: Optional[str] = None
+
+class ShelterRequestCreate(ShelterRequestBase):
+    pass
+
+class ShelterRequestUpdate(ShelterRequestBase):
+    status: Optional[str] = None
+
+class ShelterRequestResponse(ShelterRequestBase):
+    id: int
+    incident_id: int
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class ShelterRecommendationResponse(BaseModel):
+    shelter_id: int
+    shelter_name: str
+    rank: int
+    total_score: float
+    available_capacity: int
+    proposed_people_count: int
+    projected_occupancy_percentage: float
+    overcrowding_risk_level: str
+    distance_km: float
+    capacity_score: float
+    distance_score: float
+    medical_support_score: float
+    vulnerability_support_score: float
+    utility_score: float
+    overcrowding_risk_score: float
+    route_risk: Optional[str] = None
+    positive_reasons: List[str]
+    limitations: List[str]
+    explanation: str
+
+class SplitShelterAllocationPlan(BaseModel):
+    is_split: bool
+    shelters_involved: List[ShelterRecommendationResponse]
+    remaining_uncovered_people: int
+    explanation: str
+
+class ShelterAllocationEvaluationResponse(BaseModel):
+    single_source_recommendations: List[ShelterRecommendationResponse]
+    split_allocation_plan: Optional[SplitShelterAllocationPlan] = None
+
+class ShelterReservationCreate(BaseModel):
+    shelter_id: int
+    reserved_people: int
+    recommendation_score: Optional[float] = None
+    explanation: Optional[str] = None
+
+class ShelterReservationResponse(BaseModel):
+    id: int
+    shelter_request_id: int
+    shelter_id: int
+    reserved_people: int
+    status: str
+    recommendation_score: Optional[float] = None
+    explanation: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    admitted_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class ShelterRouteConditionCreate(BaseModel):
+    shelter_id: int
+    risk_level: str
+    is_blocked: int
+    estimated_delay_minutes: int = 0
+    description: Optional[str] = None
+
+class ShelterRouteConditionResponse(ShelterRouteConditionCreate):
+    id: int
+    incident_id: int
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class ShelterDashboardSummary(BaseModel):
+    total_shelters: int
+    open_shelters: int
+    available_spaces: int
+    reserved_spaces: int
+    occupied_spaces: int
+    high_overcrowding_risk_shelters: int
+    active_reservations: int
+    people_in_transit: int
+
+class ShelterOperationalStatusUpdate(BaseModel):
+    operating_status: str
+
+class ShelterLocationUpdate(BaseModel):
+    latitude: float
+    longitude: float
+
+class ShelterRouteConditionUpdate(BaseModel):
+    risk_level: Optional[str] = None
+    is_blocked: Optional[int] = None
+    estimated_delay_minutes: Optional[int] = None
+    description: Optional[str] = None
+
+class ShelterCapacityMovementResponse(BaseModel):
+    id: int
+    shelter_id: int
+    shelter_reservation_id: Optional[int] = None
+    movement_type: str
+    people_count: int
+    occupied_before: int
+    occupied_after: int
+    reserved_before: int
+    reserved_after: int
+    reason: Optional[str] = None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class ShelterReallocationEvaluateRequest(BaseModel):
+    trigger_type: str
+    trigger_description: Optional[str] = None
+    unavailable_shelter_id: int
+
+class ShelterReallocationRecommendationResult(BaseModel):
+    reallocation_required: bool
+    trigger_type: str
+    unavailable_shelter: Dict[str, Any]
+    reason: str
+    recommended_replacements: Optional[ShelterAllocationEvaluationResponse] = None
+    explanation: str
+
+class ShelterReallocationApprovalRequest(BaseModel):
+    unavailable_shelter_id: int
+    reservations: List[ShelterReservationCreate]
+    trigger_type: str
+    reason: str
+
+class ShelterCapacityAlertResponse(BaseModel):
+    shelter_id: int
+    shelter_name: str
+    capacity_percentage: float
+    message: str

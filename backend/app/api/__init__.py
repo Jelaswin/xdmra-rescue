@@ -554,3 +554,424 @@ def get_inventory_alerts(db: Session = Depends(get_db)):
         })
     return res
 
+# --- Phase 7 Shelter Endpoints ---
+from app.models import (
+    EmergencyShelter, ShelterRequest, ShelterReservation, 
+    ShelterCapacityMovement, ShelterCapacityMovementType, ShelterRouteCondition,
+    ShelterOperatingStatus, ShelterRequestStatus, ShelterReservationStatus
+)
+from app.schemas import (
+    EmergencyShelterResponse, EmergencyShelterCreate, EmergencyShelterUpdate,
+    ShelterRequestResponse, ShelterRequestCreate, ShelterRequestUpdate,
+    ShelterAllocationEvaluationResponse, ShelterReservationResponse,
+    ShelterReservationCreate, ShelterRouteConditionCreate, ShelterRouteConditionResponse, ShelterDashboardSummary
+)
+from app.services.shelter_allocation_service import evaluate_shelter_allocation
+
+@router.get("/shelters", response_model=List[EmergencyShelterResponse])
+def get_shelters(db: Session = Depends(get_db)):
+    return db.query(EmergencyShelter).all()
+
+@router.post("/shelters", response_model=EmergencyShelterResponse, status_code=status.HTTP_201_CREATED)
+def create_shelter(shelter: EmergencyShelterCreate, db: Session = Depends(get_db)):
+    db_shelter = EmergencyShelter(**shelter.model_dump())
+    db.add(db_shelter)
+    db.commit()
+    db.refresh(db_shelter)
+    return db_shelter
+
+@router.get("/shelters/{shelter_id}", response_model=EmergencyShelterResponse)
+def get_shelter(shelter_id: int, db: Session = Depends(get_db)):
+    db_shelter = db.query(EmergencyShelter).filter(EmergencyShelter.id == shelter_id).first()
+    if not db_shelter:
+        raise HTTPException(status_code=404, detail="Shelter not found")
+    return db_shelter
+
+@router.patch("/shelters/{shelter_id}", response_model=EmergencyShelterResponse)
+def update_shelter(shelter_id: int, updates: EmergencyShelterUpdate, db: Session = Depends(get_db)):
+    db_shelter = db.query(EmergencyShelter).filter(EmergencyShelter.id == shelter_id).first()
+    if not db_shelter:
+        raise HTTPException(status_code=404, detail="Shelter not found")
+    update_data = updates.model_dump(exclude_unset=True)
+    for k, v in update_data.items():
+        setattr(db_shelter, k, v)
+    db.commit()
+    db.refresh(db_shelter)
+    return db_shelter
+
+@router.post("/incidents/{incident_id}/shelter-requests", response_model=ShelterRequestResponse, status_code=status.HTTP_201_CREATED)
+def create_shelter_request(incident_id: int, request: ShelterRequestCreate, db: Session = Depends(get_db)):
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    db_req = ShelterRequest(incident_id=incident_id, **request.model_dump())
+    db.add(db_req)
+    db.commit()
+    db.refresh(db_req)
+    return db_req
+
+@router.get("/incidents/{incident_id}/shelter-requests", response_model=List[ShelterRequestResponse])
+def get_incident_shelter_requests(incident_id: int, db: Session = Depends(get_db)):
+    return db.query(ShelterRequest).filter(ShelterRequest.incident_id == incident_id).all()
+
+@router.get("/shelter-requests/{request_id}", response_model=ShelterRequestResponse)
+def get_shelter_request(request_id: int, db: Session = Depends(get_db)):
+    req = db.query(ShelterRequest).filter(ShelterRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Shelter Request not found")
+    return req
+
+@router.patch("/shelter-requests/{request_id}", response_model=ShelterRequestResponse)
+def update_shelter_request(request_id: int, updates: ShelterRequestUpdate, db: Session = Depends(get_db)):
+    req = db.query(ShelterRequest).filter(ShelterRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Shelter Request not found")
+    update_data = updates.model_dump(exclude_unset=True)
+    for k, v in update_data.items():
+        setattr(req, k, v)
+    db.commit()
+    db.refresh(req)
+    return req
+
+@router.post("/shelter-requests/{request_id}/recommendations", response_model=ShelterAllocationEvaluationResponse)
+def get_shelter_recommendations(request_id: int, db: Session = Depends(get_db)):
+    req = db.query(ShelterRequest).filter(ShelterRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Shelter Request not found")
+    return evaluate_shelter_allocation(db, request_id)
+
+@router.post("/shelter-requests/{request_id}/approve-reservations", response_model=List[ShelterReservationResponse], status_code=status.HTTP_201_CREATED)
+def approve_shelter_reservations(request_id: int, reservations: List[ShelterReservationCreate], db: Session = Depends(get_db)):
+    req = db.query(ShelterRequest).filter(ShelterRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Shelter Request not found")
+    
+    total_requested_alloc = sum(r.reserved_people for r in reservations)
+    if total_requested_alloc > req.total_displaced_people:
+        raise HTTPException(status_code=400, detail="Cannot allocate more people than requested")
+        
+    created_reservations = []
+    
+    try:
+        for res_req in reservations:
+            shelter = db.query(EmergencyShelter).filter(EmergencyShelter.id == res_req.shelter_id).with_for_update().first()
+            if not shelter:
+                raise HTTPException(status_code=404, detail=f"Shelter {res_req.shelter_id} not found")
+            
+            avail = shelter.total_capacity - shelter.occupied_capacity - shelter.reserved_capacity
+            if res_req.reserved_people > avail:
+                raise HTTPException(status_code=400, detail=f"Shelter {shelter.name} has insufficient capacity. Requested: {res_req.reserved_people}, Available: {avail}")
+            
+            db_res = ShelterReservation(
+                shelter_request_id=request_id,
+                shelter_id=res_req.shelter_id,
+                reserved_people=res_req.reserved_people,
+                recommendation_score=res_req.recommendation_score,
+                explanation=res_req.explanation,
+                approved_at=datetime.now(timezone.utc)
+            )
+            db.add(db_res)
+            db.flush() # get id
+            
+            # Record movement
+            mv = ShelterCapacityMovement(
+                shelter_id=shelter.id,
+                shelter_reservation_id=db_res.id,
+                movement_type=ShelterCapacityMovementType.reserved,
+                people_count=res_req.reserved_people,
+                occupied_before=shelter.occupied_capacity,
+                occupied_after=shelter.occupied_capacity,
+                reserved_before=shelter.reserved_capacity,
+                reserved_after=shelter.reserved_capacity + res_req.reserved_people,
+                reason=f"Approved reservation for request {request_id}"
+            )
+            db.add(mv)
+            
+            # Update shelter
+            shelter.reserved_capacity += res_req.reserved_people
+            created_reservations.append(db_res)
+            
+        req.status = ShelterRequestStatus.allocated if total_requested_alloc == req.total_displaced_people else ShelterRequestStatus.partially_allocated
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise e
+        
+    for cr in created_reservations:
+        db.refresh(cr)
+    return created_reservations
+
+@router.get("/shelter-requests/{request_id}/reservations", response_model=List[ShelterReservationResponse])
+def get_shelter_reservations(request_id: int, db: Session = Depends(get_db)):
+    return db.query(ShelterReservation).filter(ShelterReservation.shelter_request_id == request_id).all()
+
+@router.patch("/shelter-reservations/{reservation_id}/status", response_model=ShelterReservationResponse)
+def update_shelter_reservation_status(reservation_id: int, status_update: dict, db: Session = Depends(get_db)):
+    new_status_str = status_update.get("status")
+    if not new_status_str:
+        raise HTTPException(status_code=400, detail="status is required")
+        
+    res = db.query(ShelterReservation).filter(ShelterReservation.id == reservation_id).first()
+    if not res:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+        
+    shelter = db.query(EmergencyShelter).filter(EmergencyShelter.id == res.shelter_id).with_for_update().first()
+    old_status = res.status
+    
+    if old_status == new_status_str:
+        return res
+        
+    # Admitted
+    if new_status_str == ShelterReservationStatus.admitted:
+        if old_status not in [ShelterReservationStatus.approved, ShelterReservationStatus.preparing, ShelterReservationStatus.in_transit]:
+            raise HTTPException(status_code=400, detail="Invalid transition to admitted")
+        
+        # Move from reserved to occupied
+        shelter.reserved_capacity -= res.reserved_people
+        shelter.occupied_capacity += res.reserved_people
+        
+        mv = ShelterCapacityMovement(
+            shelter_id=shelter.id,
+            shelter_reservation_id=res.id,
+            movement_type=ShelterCapacityMovementType.admitted,
+            people_count=res.reserved_people,
+            occupied_before=shelter.occupied_capacity - res.reserved_people,
+            occupied_after=shelter.occupied_capacity,
+            reserved_before=shelter.reserved_capacity + res.reserved_people,
+            reserved_after=shelter.reserved_capacity,
+            reason="Admitted to shelter"
+        )
+        db.add(mv)
+        res.admitted_at = datetime.now(timezone.utc)
+        
+    # Cancelled before admission
+    elif new_status_str == ShelterReservationStatus.cancelled:
+        if old_status in [ShelterReservationStatus.admitted, ShelterReservationStatus.completed]:
+            raise HTTPException(status_code=400, detail="Cannot cancel after admission")
+            
+        shelter.reserved_capacity -= res.reserved_people
+        mv = ShelterCapacityMovement(
+            shelter_id=shelter.id,
+            shelter_reservation_id=res.id,
+            movement_type=ShelterCapacityMovementType.reservation_released,
+            people_count=res.reserved_people,
+            occupied_before=shelter.occupied_capacity,
+            occupied_after=shelter.occupied_capacity,
+            reserved_before=shelter.reserved_capacity + res.reserved_people,
+            reserved_after=shelter.reserved_capacity,
+            reason="Reservation cancelled"
+        )
+        db.add(mv)
+        res.cancelled_at = datetime.now(timezone.utc)
+        
+    # Completed/Discharged after admission
+    elif new_status_str == ShelterReservationStatus.completed:
+        if old_status != ShelterReservationStatus.admitted:
+            raise HTTPException(status_code=400, detail="Cannot complete if not admitted")
+            
+        shelter.occupied_capacity -= res.reserved_people
+        mv = ShelterCapacityMovement(
+            shelter_id=shelter.id,
+            shelter_reservation_id=res.id,
+            movement_type=ShelterCapacityMovementType.discharged,
+            people_count=res.reserved_people,
+            occupied_before=shelter.occupied_capacity + res.reserved_people,
+            occupied_after=shelter.occupied_capacity,
+            reserved_before=shelter.reserved_capacity,
+            reserved_after=shelter.reserved_capacity,
+            reason="Stay completed, discharged"
+        )
+        db.add(mv)
+        res.completed_at = datetime.now(timezone.utc)
+        
+    res.status = new_status_str
+    db.commit()
+    db.refresh(res)
+    return res
+
+@router.post("/incidents/{incident_id}/shelter-route-conditions", response_model=ShelterRouteConditionResponse)
+def create_shelter_route_condition(incident_id: int, condition: ShelterRouteConditionCreate, db: Session = Depends(get_db)):
+    inc = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found")
+        
+    rc = db.query(ShelterRouteCondition).filter(
+        ShelterRouteCondition.incident_id == incident_id,
+        ShelterRouteCondition.shelter_id == condition.shelter_id
+    ).first()
+    
+    if rc:
+        rc.risk_level = condition.risk_level
+        rc.is_blocked = condition.is_blocked
+        rc.estimated_delay_minutes = condition.estimated_delay_minutes
+        rc.description = condition.description
+    else:
+        rc = ShelterRouteCondition(
+            incident_id=incident_id,
+            shelter_id=condition.shelter_id,
+            risk_level=condition.risk_level,
+            is_blocked=condition.is_blocked,
+            estimated_delay_minutes=condition.estimated_delay_minutes,
+            description=condition.description
+        )
+        db.add(rc)
+    db.commit()
+    db.refresh(rc)
+    return rc
+
+@router.get("/shelter/dashboard-summary", response_model=ShelterDashboardSummary)
+def get_shelter_dashboard_summary(db: Session = Depends(get_db)):
+    shelters = db.query(EmergencyShelter).all()
+    total = len(shelters)
+    open_s = sum(1 for s in shelters if s.operating_status == ShelterOperatingStatus.open)
+    avail = sum(s.total_capacity - s.occupied_capacity - s.reserved_capacity for s in shelters)
+    resv = sum(s.reserved_capacity for s in shelters)
+    occ = sum(s.occupied_capacity for s in shelters)
+    
+    high_risk = sum(1 for s in shelters if s.total_capacity > 0 and (s.occupied_capacity + s.reserved_capacity) / s.total_capacity >= 0.85)
+    
+    active_res = db.query(ShelterReservation).filter(ShelterReservation.status.in_([
+        ShelterReservationStatus.approved, ShelterReservationStatus.preparing, ShelterReservationStatus.in_transit
+    ])).count()
+    
+    in_transit_res = db.query(ShelterReservation).filter(ShelterReservation.status == ShelterReservationStatus.in_transit).all()
+    in_transit_people = sum(r.reserved_people for r in in_transit_res)
+    
+    return ShelterDashboardSummary(
+        total_shelters=total,
+        open_shelters=open_s,
+        available_spaces=avail,
+        reserved_spaces=resv,
+        occupied_spaces=occ,
+        high_overcrowding_risk_shelters=high_risk,
+        active_reservations=active_res,
+        people_in_transit=in_transit_people
+    )
+
+
+@router.post("/shelters", response_model=schemas.EmergencyShelterResponse, status_code=status.HTTP_201_CREATED)
+def create_shelter(shelter: schemas.EmergencyShelterCreate, db: Session = Depends(get_db)):
+    db_shelter = models.EmergencyShelter(**shelter.model_dump())
+    db.add(db_shelter)
+    db.commit()
+    db.refresh(db_shelter)
+    return db_shelter
+
+@router.patch("/shelters/{shelter_id}/operational-status", response_model=schemas.EmergencyShelterResponse)
+def update_shelter_op_status(shelter_id: int, status_update: schemas.ShelterOperationalStatusUpdate, db: Session = Depends(get_db)):
+    shelter = db.query(models.EmergencyShelter).filter(models.EmergencyShelter.id == shelter_id).first()
+    if not shelter:
+        raise HTTPException(status_code=404, detail="Shelter not found")
+    shelter.operating_status = status_update.operating_status
+    db.commit()
+    db.refresh(shelter)
+    return shelter
+
+@router.patch("/shelters/{shelter_id}/location", response_model=schemas.EmergencyShelterResponse)
+def update_shelter_location(shelter_id: int, loc: schemas.ShelterLocationUpdate, db: Session = Depends(get_db)):
+    shelter = db.query(models.EmergencyShelter).filter(models.EmergencyShelter.id == shelter_id).first()
+    if not shelter:
+        raise HTTPException(status_code=404, detail="Shelter not found")
+    shelter.latitude = loc.latitude
+    shelter.longitude = loc.longitude
+    db.commit()
+    db.refresh(shelter)
+    return shelter
+
+@router.get("/shelters/{shelter_id}/capacity-history", response_model=List[schemas.ShelterCapacityMovementResponse])
+def get_shelter_capacity_history(shelter_id: int, db: Session = Depends(get_db)):
+    return db.query(models.ShelterCapacityMovement).filter(models.ShelterCapacityMovement.shelter_id == shelter_id).order_by(models.ShelterCapacityMovement.created_at.desc()).all()
+
+@router.patch("/shelter-route-conditions/{condition_id}", response_model=schemas.ShelterRouteConditionResponse)
+def update_shelter_route_condition(condition_id: int, updates: schemas.ShelterRouteConditionUpdate, db: Session = Depends(get_db)):
+    rc = db.query(models.ShelterRouteCondition).filter(models.ShelterRouteCondition.id == condition_id).first()
+    if not rc:
+        raise HTTPException(status_code=404, detail="Route condition not found")
+    
+    update_data = updates.model_dump(exclude_unset=True)
+    for k, v in update_data.items():
+        setattr(rc, k, v)
+        
+    db.commit()
+    db.refresh(rc)
+    return rc
+
+@router.post("/shelter-requests/{request_id}/evaluate-reallocation", response_model=schemas.ShelterReallocationRecommendationResult)
+def evaluate_shelter_reallocation(request_id: int, payload: schemas.ShelterReallocationEvaluateRequest, db: Session = Depends(get_db)):
+    req = db.query(models.ShelterRequest).filter(models.ShelterRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+        
+    unavailable_shelter = db.query(models.EmergencyShelter).filter(models.EmergencyShelter.id == payload.unavailable_shelter_id).first()
+    if not unavailable_shelter:
+        raise HTTPException(status_code=404, detail="Shelter not found")
+        
+    evaluation = evaluate_shelter_allocation(db, request_id, exclude_shelter_ids=[payload.unavailable_shelter_id])
+    
+    return schemas.ShelterReallocationRecommendationResult(
+        reallocation_required=True,
+        trigger_type=payload.trigger_type,
+        unavailable_shelter={"id": unavailable_shelter.id, "name": unavailable_shelter.name},
+        reason=payload.trigger_description or "Shelter became unavailable",
+        recommended_replacements=evaluation,
+        explanation="Replacement evaluation completed excluding the unavailable shelter."
+    )
+
+@router.post("/shelter-requests/{request_id}/reallocate", response_model=List[schemas.ShelterReservationResponse])
+def execute_shelter_reallocation(request_id: int, payload: schemas.ShelterReallocationApprovalRequest, db: Session = Depends(get_db)):
+    req = db.query(models.ShelterRequest).filter(models.ShelterRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+        
+    old_reservations = db.query(models.ShelterReservation).filter(
+        models.ShelterReservation.shelter_request_id == request_id,
+        models.ShelterReservation.shelter_id == payload.unavailable_shelter_id,
+        models.ShelterReservation.status.in_([models.ShelterReservationStatus.approved, models.ShelterReservationStatus.preparing, models.ShelterReservationStatus.in_transit])
+    ).with_for_update().all()
+    
+    if not old_reservations:
+        raise HTTPException(status_code=400, detail="No active reservations found for this shelter to reallocate")
+        
+    try:
+        for old_res in old_reservations:
+            shelter = db.query(models.EmergencyShelter).filter(models.EmergencyShelter.id == old_res.shelter_id).with_for_update().first()
+            shelter.reserved_capacity -= old_res.reserved_people
+            mv = models.ShelterCapacityMovement(
+                shelter_id=shelter.id,
+                shelter_reservation_id=old_res.id,
+                movement_type=models.ShelterCapacityMovementType.reservation_released,
+                people_count=old_res.reserved_people,
+                occupied_before=shelter.occupied_capacity,
+                occupied_after=shelter.occupied_capacity,
+                reserved_before=shelter.reserved_capacity + old_res.reserved_people,
+                reserved_after=shelter.reserved_capacity,
+                reason=f"Reallocation: {payload.reason}"
+            )
+            db.add(mv)
+            old_res.status = models.ShelterReservationStatus.cancelled
+            old_res.cancelled_at = datetime.now(timezone.utc)
+            
+        db.flush()
+        new_reservations = approve_shelter_reservations(request_id, payload.reservations, db)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise e
+        
+    return new_reservations
+
+@router.get("/shelter/capacity-alerts", response_model=List[schemas.ShelterCapacityAlertResponse])
+def get_shelter_capacity_alerts(db: Session = Depends(get_db)):
+    shelters = db.query(models.EmergencyShelter).all()
+    alerts = []
+    for s in shelters:
+        if s.total_capacity > 0:
+            pct = (s.occupied_capacity + s.reserved_capacity) / s.total_capacity
+            if pct >= 0.85:
+                alerts.append(schemas.ShelterCapacityAlertResponse(
+                    shelter_id=s.id,
+                    shelter_name=s.name,
+                    capacity_percentage=pct,
+                    message=f"Critical overcrowding risk: {pct*100:.1f}% capacity" if pct >= 0.95 else f"High overcrowding risk: {pct*100:.1f}% capacity"
+                ))
+    return alerts

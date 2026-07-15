@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import L from 'leaflet';
-import { MapIncident, MapTeam, Warehouse } from '../../types';
+import { MapIncident, MapTeam, Warehouse, EmergencyShelter } from '../../types';
 import { MapMarkerPopup } from './MapMarkerPopup';
 
 interface OperationsMapProps {
   incidents: MapIncident[];
   teams: MapTeam[];
   warehouses?: Warehouse[];
+  shelters?: EmergencyShelter[];
 }
 
 const getIncidentColor = (severity: string) => {
@@ -86,7 +87,30 @@ const createWarehouseIcon = (status: string) => {
   });
 };
 
-export const OperationsMap: React.FC<OperationsMapProps> = ({ incidents, teams, warehouses = [] }) => {
+const createShelterIcon = (status: string) => {
+  const bgColor = status === 'open' ? '#10b981' : (status === 'full' ? '#ef4444' : '#f59e0b');
+  return L.divIcon({
+    className: 'custom-div-icon',
+    html: `<div style="
+      background-color: ${bgColor};
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      border: 2px solid white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 14px;
+    ">S</div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12]
+  });
+};
+
+export const OperationsMap: React.FC<OperationsMapProps> = ({ incidents, teams, warehouses = [], shelters = [] }) => {
   const [center, setCenter] = useState<L.LatLngExpression>([11.0168, 76.9558]); // Default Coimbatore
   
   useEffect(() => {
@@ -134,6 +158,16 @@ export const OperationsMap: React.FC<OperationsMapProps> = ({ incidents, teams, 
             <MapMarkerPopup type="warehouse" data={wh} />
           </Marker>
         ))}
+
+        {shelters.map((s) => (
+          <Marker 
+            key={`shelter-${s.id}`}
+            position={[s.latitude, s.longitude]}
+            icon={createShelterIcon(s.operating_status)}
+          >
+            <MapMarkerPopup type="shelter" data={s} />
+          </Marker>
+        ))}
       </MapContainer>
       
       {/* Legend overlay */}
@@ -155,6 +189,10 @@ export const OperationsMap: React.FC<OperationsMapProps> = ({ incidents, teams, 
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-sm bg-[#8b5cf6] border border-white"></div>
             <span>Warehouse</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-sm bg-[#10b981] border border-white"></div>
+            <span>Shelter</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-full bg-[#dc2626] border border-white"></div>

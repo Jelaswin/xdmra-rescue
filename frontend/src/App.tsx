@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from './services/api';
-import { DashboardSummary, Incident, RescueTeam, Warehouse } from './types';
+import { DashboardSummary, Incident, RescueTeam, Warehouse, EmergencyShelter } from './types';
 import DashboardCards from './components/DashboardCards';
 import IncidentList from './components/IncidentList';
 import TeamList from './components/TeamList';
@@ -8,14 +8,16 @@ import IncidentForm from './components/IncidentForm';
 import IncidentDecisionPanel from './components/IncidentDecisionPanel';
 import { OperationsMap } from './components/map/OperationsMap';
 import { ReliefManagementDashboard } from './components/ReliefManagementDashboard';
+import { ShelterManagementDashboard } from './components/ShelterManagementDashboard';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'rescue' | 'relief'>('rescue');
+  const [activeTab, setActiveTab] = useState<'rescue' | 'relief' | 'shelter'>('rescue');
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [reliefSummary, setReliefSummary] = useState<any | null>(null);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [teams, setTeams] = useState<RescueTeam[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [shelters, setShelters] = useState<EmergencyShelter[]>([]);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'error'>('checking');
@@ -27,12 +29,13 @@ function App() {
       await api.checkHealth();
       setBackendStatus('connected');
       
-      const [sumData, relSumData, incData, teamData, warehouseData] = await Promise.all([
+      const [sumData, relSumData, incData, teamData, warehouseData, shelterData] = await Promise.all([
         api.getDashboardSummary(),
         api.getReliefDashboardSummary(),
         api.getIncidents(),
         api.getTeams(),
-        api.getWarehouses()
+        api.getWarehouses(),
+        api.getShelters()
       ]);
       
       setSummary((sumData as any).data ? (sumData as any).data : sumData);
@@ -40,6 +43,7 @@ function App() {
       setIncidents(incData);
       setTeams(teamData);
       setWarehouses(warehouseData.data);
+      setShelters(shelterData.data);
       setError(null);
     } catch (err: any) {
       setBackendStatus('error');
@@ -76,6 +80,12 @@ function App() {
             >
               Relief Management
             </button>
+            <button 
+              onClick={() => setActiveTab('shelter')} 
+              className={`px-4 py-2 rounded font-medium ${activeTab === 'shelter' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+            >
+              Shelter Management
+            </button>
           </div>
           <div className="flex items-center space-x-2">
             <span className="text-sm font-medium">Backend:</span>
@@ -100,7 +110,7 @@ function App() {
               <DashboardCards summary={summary} reliefSummary={reliefSummary} />
               
               <div className="mt-6 h-[400px] border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                <OperationsMap incidents={incidents} teams={teams} warehouses={warehouses} />
+                <OperationsMap incidents={incidents} teams={teams} warehouses={warehouses} shelters={shelters} />
               </div>
             </section>
 
@@ -124,8 +134,10 @@ function App() {
               </div>
             </div>
           </>
-        ) : (
+        ) : activeTab === 'relief' ? (
           <ReliefManagementDashboard />
+        ) : (
+          <ShelterManagementDashboard />
         )}
       </main>
 

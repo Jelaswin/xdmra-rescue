@@ -119,3 +119,15 @@ Added robust supply-chain logistics to X-DMRA.
 - **Database Recreation Limitation**: The `migrate.py` script destructively drops and recreates SQLite tables, which is intended for development environments only and will cause data loss in production.
 
 See `backend/app/services/RELIEF_ALGORITHM.md` for algorithm details.
+
+## Phase 7: Explainable Shelter Allocation and Overcrowding Prevention
+Added comprehensive emergency shelter management and allocation to X-DMRA.
+
+- **Shelter Evaluation Engine**: Dynamically evaluates available shelters based on proximity, specialized facilities (medical, accessibility, women/child safe areas), and capacity.
+- **Overcrowding Prevention Rules**: Strict scoring penalties for shelters nearing capacity, with hard limits to prevent critical overcrowding.
+- **Single & Split Allocation**: Suggests a single shelter if capable of housing the entire group, or splits the allocation across multiple shelters to balance the load.
+- **Capacity Movement Lifecycle**: Tracks detailed capacity changes: Reserved -> Admitted -> Discharged/Cancelled.
+- **Officer Approval**: Dispatch officers review clear explanations and metrics (e.g., overcrowding risk level) before approving reservations.
+- **New API Endpoints**: `/api/shelters`, `/api/shelter-requests`, `/api/shelter-reservations`, `/api/shelter/dashboard-summary`.
+
+See `SHELTER_ALGORITHM.md` for algorithm details.

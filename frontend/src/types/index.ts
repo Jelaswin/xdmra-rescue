@@ -397,3 +397,109 @@ export interface ReliefDashboardSummary {
   warehouses_active: number;
   low_stock_items: number;
 }
+
+// ==========================================
+// PHASE 7: SHELTER ALLOCATION TYPES
+// ==========================================
+
+export interface EmergencyShelter {
+  id: number;
+  name: string;
+  shelter_type?: string;
+  location_name?: string;
+  latitude: number;
+  longitude: number;
+  operating_status: string;
+  total_capacity: number;
+  occupied_capacity: number;
+  reserved_capacity: number;
+  maximum_daily_intake: number;
+  has_medical_support: number;
+  has_accessibility_support: number;
+  has_women_child_safe_area: number;
+  has_food: number;
+  has_drinking_water: number;
+  has_power_backup: number;
+  has_sanitation: number;
+  supports_long_term_stay: number;
+  contact_reference?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShelterRequest {
+  id: number;
+  incident_id: number;
+  total_displaced_people: number;
+  medical_observation_required: number;
+  accessibility_required: number;
+  women_child_safe_area_required: number;
+  notes?: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShelterRecommendation {
+  shelter_id: number;
+  shelter_name: string;
+  rank: number;
+  total_score: number;
+  capacity_score: number;
+  distance_score: number;
+  vulnerability_score: number;
+  utilities_score: number;
+  overcrowding_score: number;
+  route_safety_score: number;
+  workload_score: number;
+  proposed_people_count: number;
+  distance_km: number;
+  overcrowding_risk_level: string;
+  positive_reasons: string[];
+  limitations: string[];
+  explanation: string;
+}
+
+export interface ShelterSplitAllocationWarehouse {
+  shelter_id: number;
+  shelter_name: string;
+  proposed_people_count: number;
+  distance_km: number;
+  explanation: string;
+}
+
+export interface ShelterSplitAllocationPlan {
+  is_split: boolean;
+  shelters_involved: ShelterSplitAllocationWarehouse[];
+  remaining_uncovered_people: number;
+  explanation: string;
+}
+
+export interface ShelterAllocationEvaluationResponse {
+  single_source_recommendations: ShelterRecommendation[];
+  split_allocation_plan?: ShelterSplitAllocationPlan;
+}
+
+export interface ShelterReservation {
+  id: number;
+  shelter_request_id: number;
+  shelter_id: number;
+  reserved_people: number;
+  status: string;
+  recommendation_score?: number;
+  explanation?: string;
+  approved_at?: string;
+  admitted_at?: string;
+  cancelled_at?: string;
+  completed_at?: string;
+  created_at: string;
+  updated_at: string;
+  shelter?: EmergencyShelter;
+}
+
+export interface ShelterDashboardSummary {
+  total_shelters: number;
+  available_spaces: number;
+  people_sheltered: number;
+  active_requests: number;
+}
