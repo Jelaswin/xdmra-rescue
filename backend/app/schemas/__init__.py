@@ -570,3 +570,55 @@ class ShelterDashboardSummary(BaseModel):
     high_overcrowding_risk_shelters: int
     active_reservations: int
     people_in_transit: int
+
+class ShelterOperationalStatusUpdate(BaseModel):
+    operating_status: str
+
+class ShelterLocationUpdate(BaseModel):
+    latitude: float
+    longitude: float
+
+class ShelterRouteConditionUpdate(BaseModel):
+    risk_level: Optional[str] = None
+    is_blocked: Optional[int] = None
+    estimated_delay_minutes: Optional[int] = None
+    description: Optional[str] = None
+
+class ShelterCapacityMovementResponse(BaseModel):
+    id: int
+    shelter_id: int
+    shelter_reservation_id: Optional[int] = None
+    movement_type: str
+    people_count: int
+    occupied_before: int
+    occupied_after: int
+    reserved_before: int
+    reserved_after: int
+    reason: Optional[str] = None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class ShelterReallocationEvaluateRequest(BaseModel):
+    trigger_type: str
+    trigger_description: Optional[str] = None
+    unavailable_shelter_id: int
+
+class ShelterReallocationRecommendationResult(BaseModel):
+    reallocation_required: bool
+    trigger_type: str
+    unavailable_shelter: Dict[str, Any]
+    reason: str
+    recommended_replacements: Optional[ShelterAllocationEvaluationResponse] = None
+    explanation: str
+
+class ShelterReallocationApprovalRequest(BaseModel):
+    unavailable_shelter_id: int
+    reservations: List[ShelterReservationCreate]
+    trigger_type: str
+    reason: str
+
+class ShelterCapacityAlertResponse(BaseModel):
+    shelter_id: int
+    shelter_name: str
+    capacity_percentage: float
+    message: str

@@ -37,13 +37,16 @@ def calculate_overcrowding_risk(occupancy_percentage: float) -> str:
         return "high"
     return "critical"
 
-def evaluate_shelter_allocation(db: Session, request_id: int) -> ShelterAllocationEvaluationResponse:
+def evaluate_shelter_allocation(db: Session, request_id: int, exclude_shelter_ids: List[int] = None) -> ShelterAllocationEvaluationResponse:
+    if exclude_shelter_ids is None:
+        exclude_shelter_ids = []
+
     request_obj = db.query(ShelterRequest).filter(ShelterRequest.id == request_id).first()
     if not request_obj:
         raise ValueError(f"ShelterRequest {request_id} not found.")
 
     incident = db.query(Incident).filter(Incident.id == request_obj.incident_id).first()
-    shelters = db.query(EmergencyShelter).all()
+    shelters = db.query(EmergencyShelter).filter(EmergencyShelter.id.notin_(exclude_shelter_ids)).all()
     
     total_requested = request_obj.total_displaced_people
     
