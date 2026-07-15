@@ -9,9 +9,10 @@ import IncidentDecisionPanel from './components/IncidentDecisionPanel';
 import { OperationsMap } from './components/map/OperationsMap';
 import { ReliefManagementDashboard } from './components/ReliefManagementDashboard';
 import { ShelterManagementDashboard } from './components/ShelterManagementDashboard';
+import { CommandCenterDashboard } from './components/CommandCenterDashboard';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'rescue' | 'relief' | 'shelter'>('rescue');
+  const [activeTab, setActiveTab] = useState<'rescue' | 'relief' | 'shelter' | 'command'>('rescue');
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [reliefSummary, setReliefSummary] = useState<any | null>(null);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -86,6 +87,12 @@ function App() {
             >
               Shelter Management
             </button>
+            <button 
+              onClick={() => setActiveTab('command')} 
+              className={`px-4 py-2 rounded font-medium ${activeTab === 'command' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+            >
+              Command Center
+            </button>
           </div>
           <div className="flex items-center space-x-2">
             <span className="text-sm font-medium">Backend:</span>
@@ -136,8 +143,10 @@ function App() {
           </>
         ) : activeTab === 'relief' ? (
           <ReliefManagementDashboard />
-        ) : (
+        ) : activeTab === 'shelter' ? (
           <ShelterManagementDashboard />
+        ) : (
+          <CommandCenterDashboard />
         )}
       </main>
 

@@ -503,3 +503,127 @@ export interface ShelterDashboardSummary {
   people_sheltered: number;
   active_requests: number;
 }
+
+// ==========================================
+// PHASE 8: COMMAND CENTER TYPES
+// ==========================================
+
+export interface CommandDashboardSummary {
+  total_active_incidents: number;
+  critical_incidents: number;
+  high_priority_incidents: number;
+  unassigned_incidents: number;
+  incidents_awaiting_rescue: number;
+  active_rescue_allocations: number;
+  rescue_reallocations_pending: number;
+  active_relief_requests: number;
+  relief_shortages: number;
+  dispatches_preparing: number;
+  dispatches_in_transit: number;
+  low_stock_alerts: number;
+  active_shelter_requests: number;
+  uncovered_displaced_people: number;
+  shelter_reservations_in_transit: number;
+  high_overcrowding_risk_shelters: number;
+  blocked_routes: number;
+  high_risk_routes: number;
+  pending_officer_decisions: number;
+}
+
+export interface PendingDecision {
+  id: string;
+  decision_type: string;
+  incident_id: number;
+  incident_title: string;
+  priority: string;
+  resource_type: string;
+  resource_id?: number;
+  reason: string;
+  recommendation_summary: string;
+  waiting_duration_minutes: number;
+  severity: string;
+  action_route: string;
+  created_at: string;
+}
+
+export interface OperationalAlert {
+  id: number;
+  category: string;
+  severity: string;
+  title: string;
+  description: string;
+  incident_id?: number;
+  resource_type?: string;
+  resource_id?: number;
+  recommended_action?: string;
+  status: 'active' | 'acknowledged' | 'resolved' | 'dismissed';
+  acknowledged_at?: string;
+  resolved_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TimelineEvent {
+  id: string;
+  timestamp: string;
+  event_category: string;
+  title: string;
+  description: string;
+  source: string;
+  resource_type?: string;
+  resource_name?: string;
+  officer_action: boolean;
+  status?: string;
+  explanation?: string;
+  score?: number;
+}
+
+export interface IncidentOperationalSummary {
+  incident_id: number;
+  title: string;
+  incident_type: string;
+  location: string;
+  rule_priority: string;
+  ml_priority?: string;
+  rule_ml_agreement: boolean;
+  current_status: string;
+  waiting_duration_minutes: number;
+  last_updated: string;
+  assigned_team?: string;
+  allocation_status?: string;
+  rescue_score?: number;
+  team_availability?: string;
+  route_risk?: string;
+  reallocation_status?: string;
+  relief_request_status?: string;
+  requested_items: string[];
+  allocated_items: string[];
+  shortages: string[];
+  active_dispatches: number;
+  warehouse_sources: string[];
+  shelter_request_status?: string;
+  displaced_population: number;
+  reserved_population: number;
+  admitted_population: number;
+  uncovered_population: number;
+  selected_shelters: string[];
+  overcrowding_risks: string[];
+  active_alerts: number;
+  highest_alert_severity?: string;
+  pending_decisions: number;
+  blocked_routes: number;
+}
+
+export interface CommandMapOverview {
+  incidents: MapIncident[];
+  teams: MapTeam[];
+  warehouses: Warehouse[];
+  shelters: EmergencyShelter[];
+  blocked_routes: Array<{
+    incident_id: number;
+    shelter_id?: number;
+    rescue_team_id?: number;
+    risk_level: string;
+    is_blocked: boolean;
+  }>;
+}

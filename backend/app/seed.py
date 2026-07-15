@@ -342,3 +342,119 @@ def seed_db(db: Session):
     ]
     db.add_all(shelter_routes)
     db.commit()
+
+    # Phase 8 Additional Seeding for 12 Scenarios
+    # Make Codissia nearly full (Scenario 9)
+    s1 = db.query(EmergencyShelter).filter(EmergencyShelter.id == 1).first()
+    if s1:
+        s1.occupied_capacity = 4800 # 96% full
+        db.commit()
+
+    # Note: Incident 3 already has team 3 assigned (from original seed data).
+    # Don't create a conflicting Allocation here as it breaks test_team_status_assigned.
+    # The active rescue allocation scenario is already represented by team 3's assigned status.
+    
+    from app.models import ReliefRequest, ReliefRequestItem, ReliefDispatch, OperationalAlert, AlertCategory, AlertSeverity, AlertStatus, ShelterRequest
+    from datetime import datetime, timezone
+    
+    # Blocked Route for Rescue (Scenario 3 & 10)
+    # Block route for Team 3 to Incident 3
+    route3 = RouteCondition(
+        incident_id=3,
+        rescue_team_id=3,
+        risk_level=RouteRisk.high,
+        is_blocked=1,
+        estimated_delay_minutes=120,
+        description="Mudslide expanded, road completely blocked."
+    )
+    db.add(route3)
+
+    # Relief request with sufficient stock (Scenario 4)
+    rr1 = ReliefRequest(
+        incident_id=1,
+        status="completed"
+    )
+    db.add(rr1)
+    db.commit()
+    
+    rri1 = ReliefRequestItem(
+        relief_request_id=rr1.id,
+        item_type="food_packet",
+        requested_quantity=200,
+        approved_quantity=200
+    )
+    db.add(rri1)
+    db.commit()
+    
+    # Active relief dispatch (Scenario 6)
+    rd1 = ReliefDispatch(
+        relief_request_id=1,
+        warehouse_id=1,
+        vehicle_id=1,
+        status="dispatched"
+    )
+    db.add(rd1)
+
+    # Relief request with shortages (Scenario 5)
+    rr2 = ReliefRequest(
+        incident_id=2,
+        status="confirmed"
+    )
+    db.add(rr2)
+    db.commit()
+    
+    rri2 = ReliefRequestItem(
+        relief_request_id=rr2.id,
+        item_type="temporary_tent",
+        requested_quantity=5000,
+        approved_quantity=0
+    )
+    db.add(rri2)
+    
+    # Shelter request for single plan (Scenario 7)
+    # 100 people for incident 3
+    sr1 = ShelterRequest(
+        incident_id=3,
+        total_displaced_people=100,
+        status="confirmed"
+    )
+    db.add(sr1)
+
+    # Shelter request requiring split (Scenario 8)
+    # 2500 people for incident 2
+    sr2 = ShelterRequest(
+        incident_id=2,
+        total_displaced_people=2500,
+        status="confirmed"
+    )
+    db.add(sr2)
+
+    # Pending officer decision (Scenario 11) & Acknowledged alert (Scenario 12)
+    alert1 = OperationalAlert(
+        category=AlertCategory.officer_approval_pending,
+        severity=AlertSeverity.high,
+        title="Approve Karunya Rescue",
+        description="Please approve the recommended team.",
+        incident_id=3,
+        status=AlertStatus.active,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc)
+    )
+    db.add(alert1)
+
+    alert2 = OperationalAlert(
+        category=AlertCategory.rescue_route_blocked,
+        severity=AlertSeverity.critical,
+        title="Route Blocked",
+        description="Team 3 route blocked.",
+        incident_id=3,
+        resource_type="team",
+        resource_id=3,
+        status=AlertStatus.acknowledged,
+        acknowledged_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc)
+    )
+    db.add(alert2)
+    
+    db.commit()

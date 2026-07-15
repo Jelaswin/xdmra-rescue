@@ -492,3 +492,51 @@ class ShelterRouteCondition(Base):
     estimated_delay_minutes = Column(Integer, default=0)
     description = Column(String, nullable=True)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+class AlertCategory(str, enum.Enum):
+    incident_unassigned = "incident_unassigned"
+    critical_incident = "critical_incident"
+    rescue_team_unavailable = "rescue_team_unavailable"
+    rescue_reallocation_required = "rescue_reallocation_required"
+    rescue_route_blocked = "rescue_route_blocked"
+    relief_shortage = "relief_shortage"
+    relief_dispatch_delayed = "relief_dispatch_delayed"
+    warehouse_low_stock = "warehouse_low_stock"
+    warehouse_unavailable = "warehouse_unavailable"
+    shelter_capacity_shortage = "shelter_capacity_shortage"
+    shelter_overcrowding_high = "shelter_overcrowding_high"
+    shelter_route_blocked = "shelter_route_blocked"
+    shelter_reallocation_required = "shelter_reallocation_required"
+    officer_approval_pending = "officer_approval_pending"
+    stale_operational_update = "stale_operational_update"
+
+class AlertSeverity(str, enum.Enum):
+    info = "info"
+    warning = "warning"
+    high = "high"
+    critical = "critical"
+
+class AlertStatus(str, enum.Enum):
+    active = "active"
+    acknowledged = "acknowledged"
+    resolved = "resolved"
+    dismissed = "dismissed"
+
+class OperationalAlert(Base):
+    __tablename__ = "operational_alerts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    category = Column(String, index=True)
+    severity = Column(String, index=True)
+    title = Column(String)
+    description = Column(String)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=True, index=True)
+    resource_type = Column(String, nullable=True) # e.g. "team", "warehouse", "shelter"
+    resource_id = Column(Integer, nullable=True)
+    recommended_action = Column(String, nullable=True)
+    status = Column(String, default=AlertStatus.active, index=True)
+    
+    acknowledged_at = Column(DateTime, nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

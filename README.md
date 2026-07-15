@@ -1,22 +1,31 @@
 # X-DMRA Rescue
 
-An Explainable Dynamic Rescue-Team Allocation System for Disaster Response.
+An Explainable Dynamic Multi-Resource Allocation System for Disaster Response.
 
 ## Overview
-This is the X-DMRA Rescue project up to **Phase 4**. It includes a FastAPI backend and a React/Vite frontend for emergency incident reporting, rule-based priority engine, explainable rescue team allocation, custom Machine Learning incident priority predictor, and Map/Location Management.
+X-DMRA Rescue is a full-stack emergency response coordination system supporting:
+- Incident creation and management
+- Rule-based and ML-powered priority prediction
+- Explainable rescue-team allocation and reallocation
+- Relief-supply demand calculation and dispatch
+- Shelter allocation with overcrowding prevention
+- **Unified Emergency Command Dashboard (Phase 8)**
 
-**Note:** Relief-supply allocation, shelter allocation, maps, and real-time external APIs are not yet implemented.
+**Note:** All data is demonstration data for development purposes. No live emergency systems are integrated.
 
 ## Features Implemented
-- RESTful API with FastAPI and SQLite.
-- Incident creation and severity scaling.
-- Rule-based Incident Priority Engine.
-- Explainable Rescue Team Allocation Engine (Skill matching, capacity, workload, distance).
+- RESTful API with FastAPI and SQLite (PostgreSQL compatible schema).
+- Incident creation, management, and status tracking.
+- Rule-based Incident Priority Engine with explainable factors.
 - Custom Machine Learning Priority Predictor (Random Forest Classifier) using synthetic dataset.
+- Explainable Rescue Team Allocation (skill matching, capacity, workload, distance).
+- Dynamic Rescue Team Reallocation with route-risk handling.
+- Relief-demand calculation, warehouse ranking, and split allocation.
+- Shelter Evaluation with overcrowding prevention.
+- Unified Emergency Command Dashboard with alerts and pending decisions.
 - Map and Location Management via OpenStreetMap Nominatim Geocoding.
-- Operations Dashboard Map with active incidents and rescue teams.
-- Interactive Side-by-side Decision Support Panel for Dispatch Officers.
-- 62 passing end-to-end backend tests.
+- Officer-controlled allocation, dispatch, and reservation approval.
+- **188 passing backend tests**.
 
 ## Tech Stack
 - **Frontend**: React, Vite, TypeScript, Tailwind CSS
@@ -131,3 +140,52 @@ Added comprehensive emergency shelter management and allocation to X-DMRA.
 - **New API Endpoints**: `/api/shelters`, `/api/shelter-requests`, `/api/shelter-reservations`, `/api/shelter/dashboard-summary`.
 
 See `SHELTER_ALGORITHM.md` for algorithm details.
+
+## Phase 8: Unified Emergency Command Dashboard
+
+Added a unified command center interface for monitoring and coordinating disaster response operations.
+
+- **Command Center Dashboard**: Single interface displaying active incidents, critical incidents, unassigned incidents, rescue deployments, relief requests, shelter requests, and operational alerts.
+- **Priority Incident List**: Displayed with title, location, rule priority, ML priority, current status, rescue/relief/shelter status, active alert count, and waiting duration.
+- **Pending Decision Queue**: Unified queue sorted by severity, priority, and waiting duration. Officers review and act on recommendations.
+- **Operational Alerts**: Generated from stored conditions only. Categories include: critical_incident, incident_unassigned, rescue_route_blocked, shelter_overcrowding, warehouse_low_stock, relief_shortage, officer_approval_pending.
+- **Alert Acknowledgement and Resolution**: Acknowledging an alert indicates officer awareness but does NOT alter the underlying condition. Resolution requires actually fixing the condition.
+- **Alert Deduplication**: Duplicate active alerts are prevented - existing alerts are updated rather than creating new ones.
+- **Incident Command View**: Provides unified view of incident details, priority analysis, rescue/relief/shelter operations, alerts, and unified timeline.
+- **Unified Timeline**: Aggregates events from incident creation, priority calculations, ML predictions, rescue recommendations and allocations, relief dispatches, shelter reservations, route updates, and alert actions.
+- **Command Map**: Displays incidents, rescue teams, warehouses, and shelters with blocked/high-risk route indicators.
+- **Manual and Auto-Refresh**: Dashboard supports manual refresh and optional 30-60 second auto-refresh (clearly labeled).
+- **Officer Approval Requirement**: No automatic allocation approval - all decisions require explicit officer action.
+
+See `backend/app/services/COMMAND_DASHBOARD.md` for detailed documentation.
+
+## Phase 8 Command API Endpoints
+
+- `GET /api/command/dashboard-summary` - Dashboard summary metrics
+- `GET /api/command/pending-decisions` - Pending officer decisions (sorted by severity/priority/waiting)
+- `GET /api/command/alerts` - List alerts (supports ?severity= and ?status= filters)
+- `POST /api/command/alerts/generate` - Manually trigger alert generation
+- `PATCH /api/command/alerts/{alert_id}/acknowledge` - Acknowledge alert
+- `PATCH /api/command/alerts/{alert_id}/resolve` - Resolve alert
+- `GET /api/command/incidents/{incident_id}/operational-summary` - Incident operational summary
+- `GET /api/command/incidents/{incident_id}/timeline` - Unified incident timeline
+- `GET /api/command/map-overview` - Command center map data
+
+## Running Tests
+
+To run all backend tests:
+```cmd
+cd backend
+venv\Scripts\activate
+pytest
+```
+
+Expected: 188 tests collected and passing.
+
+## Current Limitations
+
+- No WebSocket real-time updates (polling-based refresh only)
+- Straight-line (Haversine) distances only - not road distances
+- No live GPS tracking of vehicles or teams
+- No integration with external government systems
+- Timeline aggregation limited to database-stored events
