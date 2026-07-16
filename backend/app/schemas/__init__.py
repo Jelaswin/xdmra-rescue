@@ -743,3 +743,79 @@ class CommandDashboardSummary(BaseModel):
     high_risk_routes: int
     
     pending_officer_decisions: int
+
+
+class ActiveIncident(BaseModel):
+    incident_id: int
+    title: str
+    incident_type: str
+    location: str
+    latitude: float
+    longitude: float
+    severity: str
+    rule_priority: Optional[str] = None
+    ml_priority: Optional[str] = None
+    current_status: str
+    rescue_status: Optional[str] = None
+    relief_status: Optional[str] = None
+    shelter_status: Optional[str] = None
+    active_alert_count: int = 0
+    waiting_duration_minutes: int = 0
+    latest_event: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ResourceStatusItem(BaseModel):
+    resource_type: str
+    resource_id: int
+    resource_name: str
+    status: str
+    details: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ResourceStatusSummary(BaseModel):
+    rescue_teams_available: int = 0
+    rescue_teams_assigned: int = 0
+    rescue_teams_unavailable: int = 0
+    warehouses_active: int = 0
+    warehouses_limited: int = 0
+    warehouses_unavailable: int = 0
+    vehicles_available: int = 0
+    vehicles_assigned: int = 0
+    vehicles_unavailable: int = 0
+    low_stock_items: int = 0
+    shelters_open: int = 0
+    shelters_limited: int = 0
+    shelters_full: int = 0
+    shelters_unavailable: int = 0
+    high_overcrowding_risk: int = 0
+    blocked_routes: int = 0
+    high_risk_routes: int = 0
+    resources: List[ResourceStatusItem] = []
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RecentActivityItem(BaseModel):
+    id: str
+    timestamp: datetime
+    resource_type: str
+    event_category: str
+    title: str
+    description: str
+    source: str
+    incident_id: Optional[int] = None
+    status: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CommandMapOverview(BaseModel):
+    incidents: List[Dict[str, Any]] = []
+    teams: List[Dict[str, Any]] = []
+    warehouses: List[Dict[str, Any]] = []
+    shelters: List[Dict[str, Any]] = []
+    blocked_routes: List[Dict[str, Any]] = []

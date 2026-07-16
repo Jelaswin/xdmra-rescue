@@ -228,3 +228,99 @@ def test_p8_39_existing_shelter_reallocation(db_session):
 
 def test_p8_40_existing_ml_prediction(db_session):
     pass
+
+def test_p8_41_active_incidents_endpoint(db_session):
+    res = client.get("/api/command/active-incidents")
+    assert res.status_code == 200
+    data = res.json()
+    assert type(data) == list
+    assert len(data) >= 1
+
+def test_p8_42_active_incidents_priority_filter(db_session):
+    res = client.get("/api/command/active-incidents?priority=critical")
+    assert res.status_code == 200
+    data = res.json()
+    for inc in data:
+        assert inc["rule_priority"] == "critical"
+
+def test_p8_43_active_incidents_type_filter(db_session):
+    res = client.get("/api/command/active-incidents?incident_type=Flood")
+    assert res.status_code == 200
+    data = res.json()
+    for inc in data:
+        assert inc["incident_type"] == "Flood"
+
+def test_p8_44_active_incidents_location_filter(db_session):
+    res = client.get("/api/command/active-incidents?location=Critical")
+    assert res.status_code == 200
+    data = res.json()
+    assert type(data) == list
+
+def test_p8_45_resource_status_endpoint(db_session):
+    res = client.get("/api/command/resource-status")
+    assert res.status_code == 200
+    data = res.json()
+    assert "rescue_teams_available" in data
+    assert "warehouses_active" in data
+    assert "vehicles_available" in data
+    assert "shelters_open" in data
+    assert "blocked_routes" in data
+
+def test_p8_46_resource_status_filter(db_session):
+    res = client.get("/api/command/resource-status?resource_type=rescue_team")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data.get("resources", [])) >= 1
+    for r in data.get("resources", []):
+        assert r["resource_type"] == "rescue_team"
+
+def test_p8_47_resource_status_counts(db_session):
+    res = client.get("/api/command/resource-status")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["rescue_teams_available"] == 1
+    assert data["shelters_open"] == 0
+
+def test_p8_48_recent_activity_endpoint(db_session):
+    res = client.get("/api/command/recent-activity")
+    assert res.status_code == 200
+    data = res.json()
+    assert type(data) == list
+
+def test_p8_49_recent_activity_limit(db_session):
+    res = client.get("/api/command/recent-activity?limit=5")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data) <= 5
+
+def test_p8_50_recent_activity_ordering(db_session):
+    res = client.get("/api/command/recent-activity")
+    assert res.status_code == 200
+    data = res.json()
+    if len(data) >= 2:
+        for i in range(len(data) - 1):
+            assert data[i]["timestamp"] >= data[i+1]["timestamp"]
+
+def test_p8_51_recent_activity_resource_type_filter(db_session):
+    res = client.get("/api/command/recent-activity?resource_type=incident")
+    assert res.status_code == 200
+    data = res.json()
+    for item in data:
+        assert item["resource_type"] == "incident"
+
+def test_p8_52_recent_activity_incident_filter(db_session):
+    res = client.get("/api/command/recent-activity?incident_id=1")
+    assert res.status_code == 200
+    data = res.json()
+    for item in data:
+        if item["incident_id"] is not None:
+            assert item["incident_id"] == 1
+
+def test_p8_53_map_overview_endpoint(db_session):
+    res = client.get("/api/command/map-overview")
+    assert res.status_code == 200
+    data = res.json()
+    assert "incidents" in data
+    assert "teams" in data
+    assert "warehouses" in data
+    assert "shelters" in data

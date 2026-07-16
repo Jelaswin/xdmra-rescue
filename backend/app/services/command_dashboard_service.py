@@ -10,7 +10,8 @@ from app.models import (
 )
 from app.schemas import (
     CommandDashboardSummary, PendingDecisionResponse, 
-    IncidentOperationalSummary, TimelineEvent
+    IncidentOperationalSummary, TimelineEvent,
+    ActiveIncident, ResourceStatusSummary, ResourceStatusItem, RecentActivityItem, CommandMapOverview
 )
 
 def get_dashboard_summary(db: Session) -> CommandDashboardSummary:
@@ -184,3 +185,445 @@ def get_incident_timeline(db: Session, incident_id: int) -> List[TimelineEvent]:
         
     events.sort(key=lambda x: x.timestamp, reverse=True)
     return events
+
+
+def get_active_incidents(
+    db: Session,
+    priority: Optional[str] = None,
+    incident_type: Optional[str] = None,
+    incident_status: Optional[str] = None,
+    location: Optional[str] = None,
+    rescue_status: Optional[str] = None
+) -> List[ActiveIncident]:
+    query = db.query(Incident).filter(
+        Incident.status.in_(["reported", "verified", "assigned", "in_progress"])
+    )
+    
+    if priority:
+        query = query.filter(Incident.priority_level == priority)
+    if incident_type:
+        query = query.filter(Incident.incident_type == incident_type)
+    if incident_status:
+        query = query.filter(Incident.status == incident_status)
+    if location:
+        query = query.filter(
+            or_(
+                Incident.location_name.ilike(f"%{location}%"),
+                Incident.latitude.is_(None)
+            )
+        )
+    
+    incidents = query.order_by(Incident.created_at.desc()).all()
+    result = []
+    
+    for inc in incidents:
+        waiting = int((datetime.now(timezone.utc) - inc.created_at.replace(tzinfo=timezone.utc)).total_seconds() / 60)
+        
+        # Get rescue status
+        alloc = db.query(Allocation).filter(
+            Allocation.incident_id == inc.id,
+            Allocation.status == "approved"
+        ).first()
+        rescue_status_val = "assigned" if alloc else "unassigned"
+        
+        if rescue_status and rescue_status != rescue_status_val:
+            continue
+        
+        # Get relief status
+        relief_req = db.query(ReliefRequest).filter(
+            ReliefRequest.incident_id == inc.id
+        ).order_by(ReliefRequest.created_at.desc()).first()
+        relief_status_val = relief_req.status if relief_req else None
+        
+        # Get shelter status
+        shelter_req = db.query(ShelterRequest).filter(
+            ShelterRequest.incident_id == inc.id
+        ).order_by(ShelterRequest.created_at.desc()).first()
+        shelter_status_val = shelter_req.status if shelter_req else None
+        
+        # Get active alert count
+        active_alerts = db.query(OperationalAlert).filter(
+            OperationalAlert.incident_id == inc.id,
+            OperationalAlert.status == AlertStatus.active
+        ).count()
+        
+        # Get latest event
+        latest_alloc = db.query(Allocation).filter(
+            Allocation.incident_id == inc.id
+        ).order_by(Allocation.created_at.desc()).first()
+        latest_event = None
+        if latest_alloc:
+            latest_event = f"Rescue {latest_alloc.status}"
+        
+        result.append(ActiveIncident(
+            incident_id=inc.id,
+            title=inc.title,
+            incident_type=inc.incident_type,
+            location=f"{inc.latitude:.4f}, {inc.longitude:.4f}",
+            latitude=inc.latitude,
+            longitude=inc.longitude,
+            severity=inc.severity.value if hasattr(inc.severity, 'value') else inc.severity,
+            rule_priority=inc.priority_level,
+            ml_priority=inc.ml_priority_level,
+            current_status=inc.status.value if hasattr(inc.status, 'value') else inc.status,
+            rescue_status=rescue_status_val,
+            relief_status=relief_status_val,
+            shelter_status=shelter_status_val,
+            active_alert_count=active_alerts,
+            waiting_duration_minutes=waiting,
+            latest_event=latest_event
+        ))
+    
+    return result
+
+
+def get_resource_status(
+    db: Session,
+    resource_type: Optional[str] = None,
+    status: Optional[str] = None
+) -> ResourceStatusSummary:
+    from app.models import (
+        DeliveryVehicle, ReliefInventory, ShelterRouteCondition,
+        VehicleAvailability, RouteRisk
+    )
+    
+    summary = ResourceStatusSummary()
+    
+    # Rescue Teams
+    teams = db.query(RescueTeam).all()
+    for t in teams:
+        s = t.availability_status.value if hasattr(t.availability_status, 'value') else t.availability_status
+        if s == "available":
+            summary.rescue_teams_available += 1
+        elif s == "assigned":
+            summary.rescue_teams_assigned += 1
+        else:
+            summary.rescue_teams_unavailable += 1
+        
+        if resource_type == "rescue_team":
+            if status is None or s == status:
+                summary.resources.append(ResourceStatusItem(
+                    resource_type="rescue_team",
+                    resource_id=t.id,
+                    resource_name=t.name,
+                    status=s
+                ))
+    
+    # Warehouses
+    warehouses = db.query(Warehouse).all()
+    for w in warehouses:
+        s = w.operating_status.value if hasattr(w.operating_status, 'value') else w.operating_status
+        if s == "active":
+            summary.warehouses_active += 1
+        elif s == "limited":
+            summary.warehouses_limited += 1
+        else:
+            summary.warehouses_unavailable += 1
+        
+        if resource_type == "warehouse":
+            if status is None or s == status:
+                summary.resources.append(ResourceStatusItem(
+                    resource_type="warehouse",
+                    resource_id=w.id,
+                    resource_name=w.name,
+                    status=s
+                ))
+    
+    # Delivery Vehicles
+    vehicles = db.query(DeliveryVehicle).all()
+    for v in vehicles:
+        s = v.availability_status.value if hasattr(v.availability_status, 'value') else v.availability_status
+        if s == "available":
+            summary.vehicles_available += 1
+        elif s == "assigned":
+            summary.vehicles_assigned += 1
+        else:
+            summary.vehicles_unavailable += 1
+        
+        if resource_type == "vehicle":
+            if status is None or s == status:
+                summary.resources.append(ResourceStatusItem(
+                    resource_type="vehicle",
+                    resource_id=v.id,
+                    resource_name=v.name,
+                    status=s
+                ))
+    
+    # Low Stock Items
+    low_stock = db.query(ReliefInventory).filter(
+        ReliefInventory.quantity_available < ReliefInventory.reorder_level
+    ).count()
+    summary.low_stock_items = low_stock
+    
+    # Shelters
+    shelters = db.query(EmergencyShelter).all()
+    for s in shelters:
+        os_val = s.operating_status.value if hasattr(s.operating_status, 'value') else s.operating_status
+        if os_val == "open":
+            summary.shelters_open += 1
+        elif os_val == "limited":
+            summary.shelters_limited += 1
+        elif os_val == "full":
+            summary.shelters_full += 1
+        else:
+            summary.shelters_unavailable += 1
+        
+        if s.total_capacity > 0:
+            pct = (s.occupied_capacity + s.reserved_capacity) / s.total_capacity
+            if pct >= 0.85:
+                summary.high_overcrowding_risk += 1
+        
+        if resource_type == "shelter":
+            if status is None or os_val == status:
+                pct = (s.occupied_capacity + s.reserved_capacity) / s.total_capacity if s.total_capacity > 0 else 0
+                summary.resources.append(ResourceStatusItem(
+                    resource_type="shelter",
+                    resource_id=s.id,
+                    resource_name=s.name,
+                    status=os_val,
+                    details=f"Capacity: {pct*100:.1f}%"
+                ))
+    
+    # Route Conditions
+    summary.blocked_routes = db.query(ShelterRouteCondition).filter(
+        ShelterRouteCondition.is_blocked == 1
+    ).count()
+    summary.high_risk_routes = db.query(ShelterRouteCondition).filter(
+        ShelterRouteCondition.risk_level == RouteRisk.high
+    ).count()
+    
+    return summary
+
+
+def get_recent_activity(
+    db: Session,
+    limit: int = 50,
+    resource_type: Optional[str] = None,
+    incident_id: Optional[int] = None
+) -> List[RecentActivityItem]:
+    events = []
+    
+    # Incident events
+    if resource_type is None or resource_type == "incident":
+        incidents_query = db.query(Incident)
+        if incident_id:
+            incidents_query = incidents_query.filter(Incident.id == incident_id)
+        incidents = incidents_query.order_by(Incident.created_at.desc()).limit(limit).all()
+        for inc in incidents:
+            events.append(RecentActivityItem(
+                id=f"inc_{inc.id}",
+                timestamp=inc.created_at,
+                resource_type="incident",
+                event_category="incident_creation",
+                title=f"Incident Created: {inc.title}",
+                description=inc.description[:100] if inc.description else "",
+                source="system",
+                incident_id=inc.id,
+                status=inc.status.value if hasattr(inc.status, 'value') else inc.status
+            ))
+    
+    # Allocation events
+    if resource_type is None or resource_type == "allocation":
+        allocs_query = db.query(Allocation)
+        if incident_id:
+            allocs_query = allocs_query.filter(Allocation.incident_id == incident_id)
+        allocs = allocs_query.order_by(Allocation.created_at.desc()).limit(limit).all()
+        for a in allocs:
+            events.append(RecentActivityItem(
+                id=f"alloc_{a.id}",
+                timestamp=a.created_at,
+                resource_type="allocation",
+                event_category="rescue_allocation",
+                title=f"Allocation: {a.status}",
+                description=f"Team {a.rescue_team_id} - Incident {a.incident_id}",
+                source="officer",
+                incident_id=a.incident_id,
+                status=a.status
+            ))
+    
+    # Relief Request events
+    if resource_type is None or resource_type == "relief_request":
+        rel_req_query = db.query(ReliefRequest)
+        if incident_id:
+            rel_req_query = rel_req_query.filter(ReliefRequest.incident_id == incident_id)
+        rel_reqs = rel_req_query.order_by(ReliefRequest.created_at.desc()).limit(limit).all()
+        for r in rel_reqs:
+            events.append(RecentActivityItem(
+                id=f"rel_req_{r.id}",
+                timestamp=r.created_at,
+                resource_type="relief_request",
+                event_category="relief_request",
+                title=f"Relief Request: {r.status}",
+                description=f"Incident {r.incident_id} - {r.total_people} people",
+                source="system",
+                incident_id=r.incident_id,
+                status=r.status
+            ))
+    
+    # Relief Dispatch events
+    if resource_type is None or resource_type == "relief_dispatch":
+        dispatches_query = db.query(ReliefDispatch)
+        if incident_id:
+            dispatches_query = dispatches_query.join(ReliefRequest).filter(ReliefRequest.incident_id == incident_id)
+        dispatches = dispatches_query.order_by(ReliefDispatch.created_at.desc()).limit(limit).all()
+        for d in dispatches:
+            events.append(RecentActivityItem(
+                id=f"dispatch_{d.id}",
+                timestamp=d.created_at,
+                resource_type="relief_dispatch",
+                event_category="relief_dispatch",
+                title=f"Dispatch: {d.status}",
+                description=f"Warehouse {d.warehouse_id} - {d.total_allocated_units} units",
+                source="officer" if d.approved_at else "system",
+                status=d.status
+            ))
+    
+    # Shelter Request events
+    if resource_type is None or resource_type == "shelter_request":
+        shel_req_query = db.query(ShelterRequest)
+        if incident_id:
+            shel_req_query = shel_req_query.filter(ShelterRequest.incident_id == incident_id)
+        shel_reqs = shel_req_query.order_by(ShelterRequest.created_at.desc()).limit(limit).all()
+        for s in shel_reqs:
+            events.append(RecentActivityItem(
+                id=f"shelter_req_{s.id}",
+                timestamp=s.created_at,
+                resource_type="shelter_request",
+                event_category="shelter_request",
+                title=f"Shelter Request: {s.status}",
+                description=f"Incident {s.incident_id} - {s.total_displaced_people} people",
+                source="system",
+                incident_id=s.incident_id,
+                status=s.status
+            ))
+    
+    # Shelter Reservation events
+    if resource_type is None or resource_type == "shelter_reservation":
+        res_query = db.query(ShelterReservation)
+        res_query = res_query.join(ShelterRequest).filter(ShelterRequest.incident_id == incident_id) if incident_id else res_query
+        reservations = res_query.order_by(ShelterReservation.created_at.desc()).limit(limit).all()
+        for r in reservations:
+            events.append(RecentActivityItem(
+                id=f"shelter_res_{r.id}",
+                timestamp=r.created_at,
+                resource_type="shelter_reservation",
+                event_category="shelter_reservation",
+                title=f"Reservation: {r.status}",
+                description=f"Shelter {r.shelter_id} - {r.reserved_people} people",
+                source="officer" if r.approved_at else "system",
+                status=r.status
+            ))
+    
+    # Alert events
+    if resource_type is None or resource_type == "alert":
+        alerts_query = db.query(OperationalAlert)
+        if incident_id:
+            alerts_query = alerts_query.filter(OperationalAlert.incident_id == incident_id)
+        alerts = alerts_query.order_by(OperationalAlert.created_at.desc()).limit(limit).all()
+        for a in alerts:
+            events.append(RecentActivityItem(
+                id=f"alert_{a.id}",
+                timestamp=a.created_at,
+                resource_type="alert",
+                event_category=f"alert_{a.status}",
+                title=f"Alert: {a.title}",
+                description=a.description[:100] if a.description else "",
+                source="system",
+                incident_id=a.incident_id,
+                status=a.status
+            ))
+    
+    # Sort all events by timestamp descending
+    events.sort(key=lambda x: x.timestamp, reverse=True)
+    return events[:limit]
+
+
+def get_command_map_overview(db: Session) -> Dict[str, Any]:
+    from app.models import ShelterRouteCondition, RouteRisk
+    
+    # Get incidents
+    incidents = db.query(Incident).filter(
+        Incident.status.in_(["reported", "verified", "assigned", "in_progress"])
+    ).all()
+    
+    # Get teams
+    teams = db.query(RescueTeam).all()
+    
+    # Get warehouses
+    warehouses = db.query(Warehouse).all()
+    
+    # Get shelters
+    shelters = db.query(EmergencyShelter).all()
+    
+    # Get blocked/high-risk routes
+    routes = db.query(ShelterRouteCondition).filter(
+        or_(
+            ShelterRouteCondition.is_blocked == 1,
+            ShelterRouteCondition.risk_level == RouteRisk.high
+        )
+    ).all()
+    
+    return {
+        "incidents": [
+            {
+                "id": i.id,
+                "title": i.title,
+                "incident_type": i.incident_type,
+                "latitude": i.latitude,
+                "longitude": i.longitude,
+                "severity": i.severity.value if hasattr(i.severity, 'value') else i.severity,
+                "status": i.status.value if hasattr(i.status, 'value') else i.status,
+                "priority_level": i.priority_level,
+                "ml_priority_level": i.ml_priority_level
+            }
+            for i in incidents
+        ],
+        "teams": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "latitude": t.latitude,
+                "longitude": t.longitude,
+                "availability_status": t.availability_status.value if hasattr(t.availability_status, 'value') else t.availability_status,
+                "capacity": t.capacity,
+                "current_workload": t.current_workload,
+                "skills": t.skills,
+                "equipment": t.equipment
+            }
+            for t in teams
+        ],
+        "warehouses": [
+            {
+                "id": w.id,
+                "name": w.name,
+                "latitude": w.latitude,
+                "longitude": w.longitude,
+                "operating_status": w.operating_status.value if hasattr(w.operating_status, 'value') else w.operating_status
+            }
+            for w in warehouses
+        ],
+        "shelters": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "latitude": s.latitude,
+                "longitude": s.longitude,
+                "operating_status": s.operating_status.value if hasattr(s.operating_status, 'value') else s.operating_status,
+                "total_capacity": s.total_capacity,
+                "occupied_capacity": s.occupied_capacity,
+                "reserved_capacity": s.reserved_capacity
+            }
+            for s in shelters
+        ],
+        "blocked_routes": [
+            {
+                "incident_id": r.incident_id,
+                "shelter_id": r.shelter_id,
+                "rescue_team_id": r.rescue_team_id,
+                "risk_level": r.risk_level.value if hasattr(r.risk_level, 'value') else r.risk_level,
+                "is_blocked": r.is_blocked,
+                "estimated_delay_minutes": r.estimated_delay_minutes
+            }
+            for r in routes
+        ]
+    }

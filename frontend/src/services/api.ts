@@ -283,5 +283,52 @@ export const api = {
     const res = await fetch(`${API_BASE_URL}/command/map-overview`);
     if (!res.ok) throw new Error('Failed to fetch command map overview');
     return res.json();
+  },
+
+  getActiveIncidents: async (params?: {
+    priority?: string;
+    incident_type?: string;
+    incident_status?: string;
+    location?: string;
+    rescue_status?: string;
+  }): Promise<any[]> => {
+    const queryParams = new URLSearchParams();
+    if (params?.priority) queryParams.set('priority', params.priority);
+    if (params?.incident_type) queryParams.set('incident_type', params.incident_type);
+    if (params?.incident_status) queryParams.set('incident_status', params.incident_status);
+    if (params?.location) queryParams.set('location', params.location);
+    if (params?.rescue_status) queryParams.set('rescue_status', params.rescue_status);
+    const query = queryParams.toString();
+    const url = `${API_BASE_URL}/command/active-incidents${query ? `?${query}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch active incidents');
+    return res.json();
+  },
+
+  getResourceStatus: async (params?: { resource_type?: string; status?: string }): Promise<any> => {
+    const queryParams = new URLSearchParams();
+    if (params?.resource_type) queryParams.set('resource_type', params.resource_type);
+    if (params?.status) queryParams.set('status', params.status);
+    const query = queryParams.toString();
+    const url = `${API_BASE_URL}/command/resource-status${query ? `?${query}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch resource status');
+    return res.json();
+  },
+
+  getRecentActivity: async (params?: {
+    limit?: number;
+    resource_type?: string;
+    incident_id?: number;
+  }): Promise<any[]> => {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.set('limit', params.limit.toString());
+    if (params?.resource_type) queryParams.set('resource_type', params.resource_type);
+    if (params?.incident_id) queryParams.set('incident_id', params.incident_id.toString());
+    const query = queryParams.toString();
+    const url = `${API_BASE_URL}/command/recent-activity${query ? `?${query}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch recent activity');
+    return res.json();
   }
 };
