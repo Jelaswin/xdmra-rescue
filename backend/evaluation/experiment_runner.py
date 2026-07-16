@@ -30,9 +30,11 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from evaluation.scenarios import get_rescue_scenarios, get_relief_scenarios, get_shelter_scenarios
-from evaluation.baselines.rescue_baselines import get_all_rescue_baselines
-from evaluation.baselines.relief_baselines import get_all_relief_baselines
-from evaluation.baselines.shelter_baselines import get_all_shelter_baselines
+from evaluation.baselines import (
+    get_all_rescue_algorithms_with_xdmra,
+    get_all_relief_algorithms_with_xdmra,
+    get_all_shelter_algorithms_with_xdmra,
+)
 from evaluation.metrics import (
     calculate_rescue_metrics, calculate_relief_metrics, calculate_shelter_metrics
 )
@@ -261,7 +263,7 @@ def run_experiment(
     if module in ("rescue", "all"):
         print("\n--- Rescue Evaluation ---")
         scenarios = load_rescue_scenarios(scenario_limit)
-        baselines = get_all_rescue_baselines()
+        baselines = get_all_rescue_algorithms_with_xdmra()
         exp_results = run_rescue_experiment(scenarios, baselines, None, repeat_count, seed)
 
         export_json({"metadata": metadata, **exp_results}, results_dir / "rescue_comparison.json")
@@ -273,7 +275,7 @@ def run_experiment(
     if module in ("relief", "all"):
         print("\n--- Relief Evaluation ---")
         scenarios = load_relief_scenarios(scenario_limit)
-        baselines = get_all_relief_baselines()
+        baselines = get_all_relief_algorithms_with_xdmra()
         exp_results = run_relief_experiment(scenarios, baselines, None, repeat_count, seed)
 
         export_json({"metadata": metadata, **exp_results}, results_dir / "relief_comparison.json")
@@ -285,7 +287,7 @@ def run_experiment(
     if module in ("shelter", "all"):
         print("\n--- Shelter Evaluation ---")
         scenarios = load_shelter_scenarios(scenario_limit)
-        baselines = get_all_shelter_baselines()
+        baselines = get_all_shelter_algorithms_with_xdmra()
         exp_results = run_shelter_experiment(scenarios, baselines, None, repeat_count, seed)
 
         export_json({"metadata": metadata, **exp_results}, results_dir / "shelter_comparison.json")
@@ -294,7 +296,7 @@ def run_experiment(
         export_shelter_table(exp_results["metrics"], exp_results["algorithms"], results_dir)
         print(f"  Scenarios: {exp_results['scenario_count']}, Algorithms: {len(exp_results['algorithms'])}, Results: {len(exp_results['results'])}")
 
-    if module == "priority":
+    if module in ("priority", "all"):
         print("\n--- Priority Model Evaluation ---")
         try:
             from evaluation.priority_evaluation import run_priority_evaluation
@@ -306,19 +308,19 @@ def run_experiment(
         except Exception as e:
             print(f"  Priority evaluation failed: {e}")
 
-    if module == "explainability":
+    if module in ("explainability", "all"):
         print("\n--- Explainability Evaluation ---")
         try:
             from evaluation.explainability_evaluation import run_explainability_evaluation
 
             rescue_scenarios = load_rescue_scenarios(scenario_limit)
-            baselines = get_all_rescue_baselines()
+            baselines = get_all_rescue_algorithms_with_xdmra()
             rescue_data = run_rescue_experiment(rescue_scenarios, baselines, None, repeat_count, seed)
             relief_scenarios = load_relief_scenarios(scenario_limit)
-            baselines_relief = get_all_relief_baselines()
+            baselines_relief = get_all_relief_algorithms_with_xdmra()
             relief_data = run_relief_experiment(relief_scenarios, baselines_relief, None, repeat_count, seed)
             shelter_scenarios = load_shelter_scenarios(scenario_limit)
-            baselines_shelter = get_all_shelter_baselines()
+            baselines_shelter = get_all_shelter_algorithms_with_xdmra()
             shelter_data = run_shelter_experiment(shelter_scenarios, baselines_shelter, None, repeat_count, seed)
 
             explain_results = run_explainability_evaluation(
@@ -333,7 +335,7 @@ def run_experiment(
         except Exception as e:
             print(f"  Explainability evaluation failed: {e}")
 
-    if module == "performance":
+    if module in ("performance", "all"):
         print("\n--- Performance Benchmark ---")
         try:
             from evaluation.performance_benchmark import run_performance_benchmark

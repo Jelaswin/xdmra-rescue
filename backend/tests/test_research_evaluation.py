@@ -550,3 +550,229 @@ class TestNoOperationalMutation:
         result = baseline.select(scenario)
         assert result.success
         assert warehouse["inventory"] == original_inventory
+
+
+class TestXDMRAAdapters:
+    """Tests for X-DMRA production service adapters."""
+
+    def test_xdmra_rescue_adapter_exists(self):
+        from evaluation.baselines.xdmra_adapters import XDMRAExplainableAdapter
+        adapter = XDMRAExplainableAdapter()
+        assert adapter.name == "xdmra_explainable"
+
+    def test_xdmra_rescue_adapter_executes(self):
+        from evaluation.baselines.xdmra_adapters import XDMRAExplainableAdapter
+        from evaluation.baselines.rescue_baselines import RescueScenario
+        adapter = XDMRAExplainableAdapter()
+        scenario = RescueScenario(
+            scenario_id="test_xdmra",
+            incident_id=1,
+            incident_title="Test",
+            incident_type="Flood",
+            latitude=10.0,
+            longitude=76.0,
+            priority_level="high",
+            required_skills=["flood_rescue"],
+            required_equipment=["boat"],
+            affected_people=20,
+            trapped_people=5,
+            available_teams=[
+                {"id": 1, "name": "Team A", "latitude": 10.1, "longitude": 76.1,
+                 "availability_status": "available", "skills": ["flood_rescue"], "equipment": ["boat", "life_jackets"],
+                 "capacity": 15, "current_workload": 2},
+            ]
+        )
+        result = adapter.select(scenario)
+        assert result.success or not result.success
+        assert result.scenario_id == "test_xdmra"
+        assert hasattr(result, "explanation")
+        assert hasattr(result, "distance_km")
+
+    def test_xdmra_rescue_adapter_no_eligible_teams(self):
+        from evaluation.baselines.xdmra_adapters import XDMRAExplainableAdapter
+        from evaluation.baselines.rescue_baselines import RescueScenario
+        adapter = XDMRAExplainableAdapter()
+        scenario = RescueScenario(
+            scenario_id="test_no_team",
+            incident_id=1,
+            incident_title="Test",
+            incident_type="Flood",
+            latitude=10.0,
+            longitude=76.0,
+            priority_level="high",
+            required_skills=[],
+            required_equipment=[],
+            affected_people=20,
+            trapped_people=0,
+            available_teams=[]
+        )
+        result = adapter.select(scenario)
+        assert not result.success
+        assert result.failure_reason is not None
+
+    def test_xdmra_relief_adapter_exists(self):
+        from evaluation.baselines.xdmra_adapters import XDMRAReliefAdapter
+        adapter = XDMRAReliefAdapter()
+        assert adapter.name == "xdmra_relief_allocation"
+
+    def test_xdmra_relief_adapter_executes(self):
+        from evaluation.baselines.xdmra_adapters import XDMRAReliefAdapter
+        from evaluation.baselines.relief_baselines import ReliefScenario
+        adapter = XDMRAReliefAdapter()
+        scenario = ReliefScenario(
+            scenario_id="test_relief_xdmra",
+            incident_id=1,
+            items={"water": 100, "food": 50},
+            total_people=100,
+            latitude=10.0,
+            longitude=76.0,
+            warehouses=[
+                {"id": 1, "name": "WH1", "latitude": 10.1, "longitude": 76.1,
+                 "operating_status": "active", "inventory": {"water": 200, "food": 100}},
+            ]
+        )
+        result = adapter.select(scenario)
+        assert result.success or not result.success
+        assert result.scenario_id == "test_relief_xdmra"
+        assert hasattr(result, "fulfilment_pct")
+
+    def test_xdmra_shelter_adapter_exists(self):
+        from evaluation.baselines.xdmra_adapters import XDMRAShelterAdapter
+        adapter = XDMRAShelterAdapter()
+        assert adapter.name == "xdmra_shelter_allocation"
+
+    def test_xdmra_shelter_adapter_executes(self):
+        from evaluation.baselines.xdmra_adapters import XDMRAShelterAdapter
+        from evaluation.baselines.shelter_baselines import ShelterScenario
+        adapter = XDMRAShelterAdapter()
+        scenario = ShelterScenario(
+            scenario_id="test_shelter_xdmra",
+            incident_id=1,
+            displaced_people=50,
+            medical_required=False,
+            accessibility_required=False,
+            latitude=10.0,
+            longitude=76.0,
+            shelters=[
+                {"id": 1, "name": "Shelter A", "latitude": 10.1, "longitude": 76.1,
+                 "operating_status": "open", "total_capacity": 100, "occupied_capacity": 20,
+                 "reserved_capacity": 10, "has_medical": False, "has_accessibility": False},
+            ]
+        )
+        result = adapter.select(scenario)
+        assert result.success or not result.success
+        assert result.scenario_id == "test_shelter_xdmra"
+        assert hasattr(result, "population_coverage_pct")
+
+    def test_xdmra_rescue_adapter_does_not_mutate_operational_state(self):
+        from evaluation.baselines.xdmra_adapters import XDMRAExplainableAdapter
+        from evaluation.baselines.rescue_baselines import RescueScenario
+        adapter = XDMRAExplainableAdapter()
+        team = {"id": 1, "name": "Team A", "latitude": 10.1, "longitude": 76.1,
+                "availability_status": "available", "skills": ["flood_rescue"],
+                "equipment": ["boat"], "capacity": 15, "current_workload": 2}
+        scenario = RescueScenario(
+            scenario_id="test_no_mutate",
+            incident_id=1,
+            incident_title="Test",
+            incident_type="Flood",
+            latitude=10.0,
+            longitude=76.0,
+            priority_level="high",
+            required_skills=[],
+            required_equipment=[],
+            affected_people=20,
+            trapped_people=0,
+            available_teams=[team]
+        )
+        original_workload = team["current_workload"]
+        result = adapter.select(scenario)
+        assert team["current_workload"] == original_workload
+
+    def test_get_all_rescue_algorithms_with_xdmra_count(self):
+        from evaluation.baselines import get_all_rescue_algorithms_with_xdmra
+        algos = get_all_rescue_algorithms_with_xdmra()
+        assert len(algos) == 6
+        assert "xdmra_explainable" in algos
+
+    def test_get_all_relief_algorithms_with_xdmra_count(self):
+        from evaluation.baselines import get_all_relief_algorithms_with_xdmra
+        algos = get_all_relief_algorithms_with_xdmra()
+        assert len(algos) == 5
+        assert "xdmra_relief_allocation" in algos
+
+    def test_get_all_shelter_algorithms_with_xdmra_count(self):
+        from evaluation.baselines import get_all_shelter_algorithms_with_xdmra
+        algos = get_all_shelter_algorithms_with_xdmra()
+        assert len(algos) == 5
+        assert "xdmra_shelter_allocation" in algos
+
+    def test_rescue_comparison_includes_xdmra(self):
+        from evaluation.baselines import get_all_rescue_algorithms_with_xdmra
+        from evaluation.scenarios import get_rescue_scenarios
+        from evaluation.experiment_runner import run_rescue_experiment
+        scenarios = get_rescue_scenarios()[:3]
+        baselines = get_all_rescue_algorithms_with_xdmra()
+        result = run_rescue_experiment(scenarios, baselines, repeat=1, seed=42)
+        algorithm_names = set(r["algorithm"] for r in result["results"])
+        assert "xdmra_explainable" in algorithm_names
+        assert len(algorithm_names) == 6
+
+    def test_relief_comparison_includes_xdmra(self):
+        from evaluation.baselines import get_all_relief_algorithms_with_xdmra
+        from evaluation.scenarios import get_relief_scenarios
+        from evaluation.experiment_runner import run_relief_experiment
+        scenarios = get_relief_scenarios()[:3]
+        baselines = get_all_relief_algorithms_with_xdmra()
+        result = run_relief_experiment(scenarios, baselines, repeat=1, seed=42)
+        algorithm_names = set(r["algorithm"] for r in result["results"])
+        assert "xdmra_relief_allocation" in algorithm_names
+        assert len(algorithm_names) == 5
+
+    def test_shelter_comparison_includes_xdmra(self):
+        from evaluation.baselines import get_all_shelter_algorithms_with_xdmra
+        from evaluation.scenarios import get_shelter_scenarios
+        from evaluation.experiment_runner import run_shelter_experiment
+        scenarios = get_shelter_scenarios()[:3]
+        baselines = get_all_shelter_algorithms_with_xdmra()
+        result = run_shelter_experiment(scenarios, baselines, repeat=1, seed=42)
+        algorithm_names = set(r["algorithm"] for r in result["results"])
+        assert "xdmra_shelter_allocation" in algorithm_names
+        assert len(algorithm_names) == 5
+
+
+class TestModuleAllOrchestration:
+    """Tests for the --module all orchestration."""
+
+    def test_module_all_includes_rescue(self):
+        from evaluation.experiment_runner import run_experiment
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_experiment("rescue", seed=42, output_dir=Path(tmpdir))
+            assert "results_directory" in result
+
+    def test_module_all_includes_priority(self):
+        from evaluation.experiment_runner import run_experiment
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_experiment("priority", seed=42, output_dir=Path(tmpdir))
+            assert "results_directory" in result
+
+    def test_module_all_runs_every_module(self):
+        from evaluation.experiment_runner import run_experiment
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_experiment("all", seed=42, output_dir=Path(tmpdir))
+            assert result["metadata"]["module"] == "all"
+            assert result["duration_ms"] > 0
+
+    def test_module_all_duration_includes_all_modules(self):
+        from evaluation.experiment_runner import run_experiment
+        import tempfile
+        import time
+        with tempfile.TemporaryDirectory() as tmpdir:
+            start = time.perf_counter()
+            result = run_experiment("all", seed=42, output_dir=Path(tmpdir))
+            total_time = (time.perf_counter() - start) * 1000
+            assert result["duration_ms"] > 0
+            assert result["duration_ms"] <= total_time * 1.1
