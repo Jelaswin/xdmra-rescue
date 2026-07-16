@@ -1,4 +1,4 @@
-import { Incident, IncidentCreateRequest, DashboardSummary, RescueTeam, PriorityResult, TeamRecommendation, Allocation, MLPredictionResponse, PriorityComparisonResponse, ModelInfo, GeocodingResult, MapOverviewResponse, ReallocationRecommendationResult, ReallocationEventResponse, RouteConditionCreate, OperationalStatusUpdate } from '../types';
+import { Incident, IncidentCreateRequest, DashboardSummary, RescueTeam, PriorityResult, TeamRecommendation, Allocation, MLPredictionResponse, PriorityComparisonResponse, ModelInfo, GeocodingResult, MapOverviewResponse, ReallocationRecommendationResult, ReallocationEventResponse, RouteConditionCreate, OperationalStatusUpdate, CommandDashboardSummary, PendingDecision, OperationalAlert, IncidentOperationalSummary, TimelineEvent, CommandMapOverview } from '../types';
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
@@ -223,5 +223,112 @@ export const api = {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
     });
     return { data: await res.json() };
+  },
+
+  // Phase 8 Command Center APIs
+  getCommandDashboardSummary: async (): Promise<CommandDashboardSummary> => {
+    const res = await fetch(`${API_BASE_URL}/command/dashboard-summary`);
+    if (!res.ok) throw new Error('Failed to fetch command dashboard summary');
+    return res.json();
+  },
+
+  getCommandPendingDecisions: async (): Promise<PendingDecision[]> => {
+    const res = await fetch(`${API_BASE_URL}/command/pending-decisions`);
+    if (!res.ok) throw new Error('Failed to fetch pending decisions');
+    return res.json();
+  },
+
+  getCommandAlerts: async (params?: { severity?: string; status?: string }): Promise<OperationalAlert[]> => {
+    const queryParams = new URLSearchParams();
+    if (params?.severity) queryParams.set('severity', params.severity);
+    if (params?.status) queryParams.set('status', params.status);
+    const query = queryParams.toString();
+    const url = `${API_BASE_URL}/command/alerts${query ? `?${query}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch alerts');
+    return res.json();
+  },
+
+  acknowledgeAlert: async (alertId: number): Promise<OperationalAlert> => {
+    const res = await fetch(`${API_BASE_URL}/command/alerts/${alertId}/acknowledge`, { method: 'PATCH' });
+    if (!res.ok) throw new Error('Failed to acknowledge alert');
+    return res.json();
+  },
+
+  resolveAlert: async (alertId: number): Promise<OperationalAlert> => {
+    const res = await fetch(`${API_BASE_URL}/command/alerts/${alertId}/resolve`, { method: 'PATCH' });
+    if (!res.ok) throw new Error('Failed to resolve alert');
+    return res.json();
+  },
+
+  triggerAlertGeneration: async (): Promise<{ status: string; message: string }> => {
+    const res = await fetch(`${API_BASE_URL}/command/alerts/generate`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to trigger alert generation');
+    return res.json();
+  },
+
+  getIncidentOperationalSummary: async (incidentId: number): Promise<IncidentOperationalSummary> => {
+    const res = await fetch(`${API_BASE_URL}/command/incidents/${incidentId}/operational-summary`);
+    if (!res.ok) throw new Error('Failed to fetch operational summary');
+    return res.json();
+  },
+
+  getIncidentTimeline: async (incidentId: number): Promise<TimelineEvent[]> => {
+    const res = await fetch(`${API_BASE_URL}/command/incidents/${incidentId}/timeline`);
+    if (!res.ok) throw new Error('Failed to fetch incident timeline');
+    return res.json();
+  },
+
+  getCommandMapOverview: async (): Promise<CommandMapOverview> => {
+    const res = await fetch(`${API_BASE_URL}/command/map-overview`);
+    if (!res.ok) throw new Error('Failed to fetch command map overview');
+    return res.json();
+  },
+
+  getActiveIncidents: async (params?: {
+    priority?: string;
+    incident_type?: string;
+    incident_status?: string;
+    location?: string;
+    rescue_status?: string;
+  }): Promise<any[]> => {
+    const queryParams = new URLSearchParams();
+    if (params?.priority) queryParams.set('priority', params.priority);
+    if (params?.incident_type) queryParams.set('incident_type', params.incident_type);
+    if (params?.incident_status) queryParams.set('incident_status', params.incident_status);
+    if (params?.location) queryParams.set('location', params.location);
+    if (params?.rescue_status) queryParams.set('rescue_status', params.rescue_status);
+    const query = queryParams.toString();
+    const url = `${API_BASE_URL}/command/active-incidents${query ? `?${query}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch active incidents');
+    return res.json();
+  },
+
+  getResourceStatus: async (params?: { resource_type?: string; status?: string }): Promise<any> => {
+    const queryParams = new URLSearchParams();
+    if (params?.resource_type) queryParams.set('resource_type', params.resource_type);
+    if (params?.status) queryParams.set('status', params.status);
+    const query = queryParams.toString();
+    const url = `${API_BASE_URL}/command/resource-status${query ? `?${query}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch resource status');
+    return res.json();
+  },
+
+  getRecentActivity: async (params?: {
+    limit?: number;
+    resource_type?: string;
+    incident_id?: number;
+  }): Promise<any[]> => {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.set('limit', params.limit.toString());
+    if (params?.resource_type) queryParams.set('resource_type', params.resource_type);
+    if (params?.incident_id) queryParams.set('incident_id', params.incident_id.toString());
+    const query = queryParams.toString();
+    const url = `${API_BASE_URL}/command/recent-activity${query ? `?${query}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch recent activity');
+    return res.json();
   }
 };

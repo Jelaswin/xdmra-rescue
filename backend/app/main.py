@@ -4,6 +4,7 @@ import os
 
 from app.database import engine, Base
 from app.api import router as api_router
+from app.api.command import router as command_router
 from app.seed import seed_db
 
 # Create all tables
@@ -22,6 +23,7 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api")
+app.include_router(command_router, prefix="/api")
 
 @app.on_event("startup")
 def on_startup():
