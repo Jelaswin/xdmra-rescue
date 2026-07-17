@@ -330,5 +330,84 @@ export const api = {
     const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to fetch recent activity');
     return res.json();
+  },
+
+  // Phase 9 Research Evaluation APIs
+  getEvaluationAlgorithms: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE_URL}/evaluation/algorithms`);
+    if (!res.ok) throw new Error('Failed to fetch evaluation algorithms');
+    return res.json();
+  },
+
+  getEvaluationScenarios: async (module?: string): Promise<any[]> => {
+    const url = `${API_BASE_URL}/evaluation/scenarios${module ? `?module=${module}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch evaluation scenarios');
+    return res.json();
+  },
+
+  runEvaluationExperiment: async (params: {
+    module: string;
+    seed?: number;
+    scenario_limit?: number;
+    repeat_count?: number;
+    algorithms?: string[];
+    output_subdir?: string;
+  }): Promise<any> => {
+    const res = await fetch(`${API_BASE_URL}/evaluation/experiments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (!res.ok) throw new Error('Failed to run evaluation experiment');
+    return res.json();
+  },
+
+  listEvaluationExperiments: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE_URL}/evaluation/experiments`);
+    if (!res.ok) throw new Error('Failed to list experiments');
+    return res.json();
+  },
+
+  getEvaluationExperiment: async (experimentId: string): Promise<any> => {
+    const res = await fetch(`${API_BASE_URL}/evaluation/experiments/${experimentId}`);
+    if (!res.ok) throw new Error('Failed to get experiment');
+    return res.json();
+  },
+
+  getExperimentResults: async (experimentId: string): Promise<any> => {
+    const res = await fetch(`${API_BASE_URL}/evaluation/experiments/${experimentId}/results`);
+    if (!res.ok) throw new Error('Failed to get experiment results');
+    return res.json();
+  },
+
+  getExperimentMetrics: async (experimentId: string): Promise<any> => {
+    const res = await fetch(`${API_BASE_URL}/evaluation/experiments/${experimentId}/metrics`);
+    if (!res.ok) throw new Error('Failed to get experiment metrics');
+    return res.json();
+  },
+
+  getPriorityModelEvaluation: async (): Promise<any> => {
+    const res = await fetch(`${API_BASE_URL}/evaluation/priority-model`);
+    if (!res.ok) throw new Error('Failed to get priority model evaluation');
+    return res.json();
+  },
+
+  getPerformanceBenchmark: async (): Promise<any> => {
+    const res = await fetch(`${API_BASE_URL}/evaluation/performance`);
+    if (!res.ok) throw new Error('Failed to get performance benchmark');
+    return res.json();
+  },
+
+  getExplainabilityCoverage: async (): Promise<any> => {
+    const res = await fetch(`${API_BASE_URL}/evaluation/explainability`);
+    if (!res.ok) throw new Error('Failed to get explainability coverage');
+    return res.json();
+  },
+
+  exportExperimentResults: async (experimentId: string, format: 'csv' | 'json' | 'markdown' | 'latex'): Promise<Blob> => {
+    const res = await fetch(`${API_BASE_URL}/evaluation/export/${experimentId}?format=${format}`);
+    if (!res.ok) throw new Error(`Failed to export ${format}`);
+    return res.blob();
   }
 };
