@@ -24,7 +24,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.services.priority_predictor import load_model, _model_pipeline, _model_metadata
+import app.services.priority_predictor as priority_predictor
 
 
 MODEL_ARTIFACT_DIR = Path(__file__).parent.parent / "ml" / "artifacts"
@@ -41,8 +41,12 @@ class PriorityEvaluationResult:
     weighted_f1: float
     confusion_matrix: Dict[str, int]
     per_class_metrics: Dict[str, Dict[str, float]]
-    training_accuracy: Optional[float]
-    evaluation_accuracy: Optional[float]
+    training_accuracy: None
+    training_accuracy_status: str
+    evaluation_accuracy: float
+    evaluation_macro_f1: float
+    evaluation_weighted_f1: float
+    evaluation_dataset_size: int
     prediction_latency_ms_mean: float
     prediction_latency_ms_median: float
     prediction_latency_ms_std: float
@@ -53,7 +57,8 @@ class PriorityEvaluationResult:
     rule_ml_disagreement_count: int
     total_samples: int
     synthetic_data_note: str
-    overfitting_concern_note: str
+    overfitting_gap: None
+    overfitting_assessment: str
     evaluation_timestamp: str
 
 
@@ -104,16 +109,20 @@ def evaluate_priority_model(
     dataset_path: Optional[Path] = None,
     output_dir: Optional[Path] = None,
 ) -> PriorityEvaluationResult:
-    """Evaluate the priority model on the synthetic dataset.
+    """Evaluate the priority model on the held-out test set.
 
     Uses the production model loading from app.services.priority_predictor.
     Does NOT retrain, regenerate data, or modify artifacts.
+
+    The held-out test set (549 samples) is reconstructed by applying
+    the same train_test_split(random_state=42, test_size=0.2, stratify=y)
+    that was used during training. Evaluation uses ONLY the test portion.
     """
     dataset_path = dataset_path or (ML_DATA_DIR / "incident_priority_synthetic.csv")
     output_dir = output_dir or OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if not load_model():
+    if not priority_predictor.load_model():
         return _error_result("Failed to load production model")
 
     if not dataset_path.exists():
@@ -136,26 +145,40 @@ def evaluate_priority_model(
         if col not in df.columns:
             df[col] = 0
 
-    X = df[feature_cols].copy()
-    y_true = df["priority_level"].tolist()
+    X_full = df[feature_cols].copy()
+    y_full = df["priority_level"].tolist()
 
-    predictions = []
+    from sklearn.model_selection import train_test_split
+    _, X_test, _, y_test = train_test_split(
+        X_full, y_full,
+        test_size=0.2,
+        random_state=42,
+        stratify=y_full
+    )
+
+    test_df = X_test.copy()
+    y_true = y_test
+
+    import time
+    pipeline = priority_predictor.get_model_pipeline()
+    pipeline.predict(test_df.iloc[0:1])
+
     latencies = []
-
-    for i in range(len(X)):
-        row_df = X.iloc[i:i+1].copy()
+    predictions = []
+    for i in range(len(test_df)):
+        row_df = test_df.iloc[i:i+1].copy()
         for col in ["incident_type", "severity"]:
             if col in row_df.columns:
                 row_df[col] = [str(row_df[col].iloc[0])]
 
         start = time.perf_counter()
         try:
-            pred = _model_pipeline.predict(row_df)[0]
+            pred = pipeline.predict(row_df)[0]
         except Exception:
             pred = "medium"
         latency_ms = (time.perf_counter() - start) * 1000
-        predictions.append(str(pred))
         latencies.append(latency_ms)
+        predictions.append(str(pred))
 
     actual_labels = [str(l) for l in y_true]
     classes = sorted(set(actual_labels))
@@ -192,15 +215,14 @@ def evaluate_priority_model(
 
     lat_stats = _calculate_latency_stats(latencies)
 
-    rule_predictions = [_rule_based_priority(row) for _, row in df.iterrows()]
+    rule_predictions = [_rule_based_priority(row) for _, row in test_df.iterrows()]
     agreement_count = sum(1 for r, p in zip(rule_predictions, predictions) if r == p)
     agreement_rate = (agreement_count / len(predictions)) * 100 if predictions else 0.0
     disagreement_count = len(predictions) - agreement_count
 
     training_accuracy = None
-    if _model_metadata:
-        best_metrics = _model_metadata.get("best_metrics", {})
-        training_accuracy = best_metrics.get("accuracy")
+    training_accuracy_status = "not_recorded"
+    metadata = priority_predictor._model_metadata
 
     result = PriorityEvaluationResult(
         accuracy=float(accuracy),
@@ -210,8 +232,12 @@ def evaluate_priority_model(
         weighted_f1=weighted_f1,
         confusion_matrix=confusion,
         per_class_metrics=class_metrics,
-        training_accuracy=training_accuracy,
+        training_accuracy=None,
+        training_accuracy_status=training_accuracy_status,
         evaluation_accuracy=float(accuracy),
+        evaluation_macro_f1=float(macro_f1),
+        evaluation_weighted_f1=float(weighted_f1),
+        evaluation_dataset_size=len(predictions),
         prediction_latency_ms_mean=lat_stats["mean"],
         prediction_latency_ms_median=lat_stats["median"],
         prediction_latency_ms_std=lat_stats["std"],
@@ -226,11 +252,8 @@ def evaluate_priority_model(
             "Results do not reflect real-world disaster response performance. "
             "No statistical significance claim is made."
         ),
-        overfitting_concern_note=(
-            f"Training accuracy ({training_accuracy:.1f}%) vs "
-            f"Evaluation accuracy ({accuracy:.1f}%). "
-            f"Difference may indicate overfitting when using synthetic data."
-        ) if training_accuracy else "Training accuracy not available for comparison.",
+        overfitting_gap=None,
+        overfitting_assessment="cannot_be_determined_without_training_score",
         evaluation_timestamp=datetime.now(timezone.utc).isoformat(),
     )
 
@@ -244,14 +267,21 @@ def evaluate_priority_model(
 def _error_result(message: str) -> PriorityEvaluationResult:
     return PriorityEvaluationResult(
         accuracy=0.0, macro_precision=0.0, macro_recall=0.0, macro_f1=0.0, weighted_f1=0.0,
-        confusion_matrix={}, per_class_metrics={}, training_accuracy=None,
-        evaluation_accuracy=None, prediction_latency_ms_mean=0.0,
+        confusion_matrix={}, per_class_metrics={},
+        training_accuracy=None,
+        training_accuracy_status="not_recorded",
+        evaluation_accuracy=0.0,
+        evaluation_macro_f1=0.0,
+        evaluation_weighted_f1=0.0,
+        evaluation_dataset_size=0,
+        prediction_latency_ms_mean=0.0,
         prediction_latency_ms_median=0.0, prediction_latency_ms_std=0.0,
         prediction_latency_ms_min=0.0, prediction_latency_ms_max=0.0,
         prediction_latency_ms_p95=0.0, rule_ml_agreement_rate=0.0,
         rule_ml_disagreement_count=0, total_samples=0,
         synthetic_data_note="Evaluation failed: " + message,
-        overfitting_concern_note="",
+        overfitting_gap=None,
+        overfitting_assessment="cannot_be_determined_without_training_score",
         evaluation_timestamp=datetime.now(timezone.utc).isoformat(),
     )
 

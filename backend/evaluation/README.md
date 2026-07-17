@@ -47,17 +47,19 @@ backend/evaluation/
 - `skill_match_only`: Ranks teams by skill and equipment compatibility
 - `priority_distance_only`: Ranks by incident priority weight and straight-line distance
 
-### Relief Baselines
-- `first_stocked_warehouse`: Selects first warehouse with complete item stock
+### Relief Baselines (5 total with X-DMRA)
+- `first_stocked_warehouse`: Selects first warehouse with complete item stock (all-or-nothing)
 - `nearest_stocked_warehouse`: Selects nearest warehouse with available stock
-- `highest_stock_coverage`: Selects warehouse with best demand coverage
+- `highest_stock_coverage`: Selects warehouse with best per-item coverage percentage
 - `single_warehouse_only`: Always uses single warehouse allocation
+- `xdmra_relief_allocation`: X-DMRA production scoring with split allocation across multiple warehouses
 
-### Shelter Baselines
+### Shelter Baselines (5 total with X-DMRA)
 - `nearest_available_shelter`: Selects closest shelter with available capacity
 - `largest_capacity_shelter`: Selects shelter with most available capacity
-- `first_available_shelter`: Selects first open shelter
-- `capacity_only`: Selects shelter by capacity regardless of distance
+- `first_available_shelter`: Selects first open shelter by ID order
+- `capacity_only`: Selects shelter by total capacity regardless of distance
+- `xdmra_shelter_allocation`: X-DMRA production scoring with split allocation across multiple shelters
 
 ## Scenario Counts
 
@@ -77,17 +79,31 @@ backend/evaluation/
 - workload_standard_deviation, Jain fairness index, mean_latency_ms
 
 ### Relief Metrics
-- demand_fulfilment_percentage, item_coverage_percentage, shortage_quantity
-- warehouses_used, mean_distance_km, inventory_utilisation
-- stock_violations, vehicle_capacity_suitability, route_safety_score
-- split_allocation_frequency, single_source_success_rate, mean_latency_ms
+- `macro_fulfilment_pct`: Mean scenario fulfilment across ALL scenarios (not just successful)
+- `weighted_fulfilment_pct`: Total allocated / total requested across ALL scenarios
+- `allocation_success_count`: Scenarios with positive allocation produced
+- `fully_fulfilled_count`: Scenarios with zero shortage
+- `partial_fulfilment_count`: Scenarios with positive allocation and remaining shortage
+- `failed_count`: Scenarios with zero allocation
+- `mean_shortage`, `total_shortage`: Shortage statistics
+- `total_stock_violations`: Always zero (allocations are correctly capped)
+- `total_requested`: Sum of all requested items per scenario
+- `split_allocation_count`: Scenarios using multiple warehouses (X-DMRA)
+- `mean_latency_ms`, route_safety, mean_distance_km
 
 ### Shelter Metrics
-- population_coverage_percentage, uncovered_population, shelters_used
-- mean_projected_occupancy, maximum_projected_occupancy
-- capacity_violations, critical_overcrowding_cases
-- medical_support_match_percentage, accessibility_support_match_percentage
-- route_safety_score, household_splitting_count, reallocation_success_rate
+- `macro_population_coverage_pct`: Mean coverage over ALL scenarios
+- `weighted_population_coverage_pct`: Total allocated / total displaced
+- `allocation_success_count`: Scenarios with positive allocation
+- `fully_covered_count`: Scenarios with zero uncovered
+- `partial_covered_count`: Scenarios with allocation but remaining demand
+- `failed_count`: Scenarios with no eligible shelter
+- `mean_uncovered_people`, `total_uncovered_people`: Uncovered population statistics
+- `critical_overcrowding_cases`: Allocations where projected occupancy >= 95%
+- `medical_requirement_match_pct`: Match rate over scenarios with medical requirement
+- `accessibility_requirement_match_pct`: Match rate over scenarios with accessibility requirement
+- Split shelter allocation supported (multiple shelters per scenario)
+- `mean_shelters_used`, route_safety, mean_latency_ms
 
 ### Priority Model Metrics
 - Accuracy, macro precision, macro recall, macro F1, weighted F1

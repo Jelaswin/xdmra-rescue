@@ -326,22 +326,35 @@ class XDMRAReliefAdapter:
     name = "xdmra_relief_allocation"
 
     def select(self, scenario) -> "XDMRAReliefResult":
-        """Execute X-DMRA relief allocation for a scenario."""
+        """Execute X-DMRA relief allocation for a scenario.
+
+        Implements true split allocation across multiple warehouses:
+        1. Score and rank all warehouses using production scoring.
+        2. Allocate per-item min(requested, available) from each ranked warehouse
+           until all demand is fulfilled or no warehouses remain.
+        3. Per-item demand is capped: no item ever receives more than requested.
+        4. Per-item supply from each warehouse is capped at that warehouse's stock.
+        """
         start_time = time.perf_counter()
 
-        if not scenario.warehouses:
+        total_requested = sum(scenario.items.values()) if scenario.items else 0
+
+        if not scenario.warehouses or total_requested == 0:
+            reason = "No warehouses available" if not scenario.warehouses else "No demand"
             return XDMRAReliefResult(
                 algorithm=self.name,
                 scenario_id=scenario.scenario_id,
                 success=False,
                 warehouses_used=[],
                 fulfilment_pct=0.0,
-                shortage=sum(scenario.items.values()) if scenario.items else 0,
+                shortage=total_requested,
                 distance_km=0.0,
                 stock_violations=0,
                 split_allocation=False,
                 computation_time_ms=(time.perf_counter() - start_time) * 1000,
-                failure_reason="No warehouses available"
+                failure_reason=reason,
+                total_requested=total_requested,
+                explanation="No warehouse could fulfill this request: " + reason + "."
             )
 
         scoring_inputs = []
@@ -384,30 +397,90 @@ class XDMRAReliefAdapter:
                 success=False,
                 warehouses_used=[],
                 fulfilment_pct=0.0,
-                shortage=sum(scenario.items.values()) if scenario.items else 0,
+                shortage=total_requested,
                 distance_km=0.0,
                 stock_violations=0,
                 split_allocation=False,
                 computation_time_ms=(time.perf_counter() - start_time) * 1000,
-                failure_reason="No eligible warehouse found"
+                failure_reason="No eligible warehouse found",
+                total_requested=total_requested,
+                explanation="No warehouse could fulfill any requested items for this scenario."
             )
 
-        top = ranked[0]
-        total_demanded = sum(scenario.items.values()) if scenario.items else 1
-        shortage = top.total_requested_units - top.total_supplied_units
+        remaining_demand = {k: v for k, v in scenario.items.items() if v > 0}
+        selected_warehouses = []
+        total_supplied = 0
+        split = False
+
+        for scored_wh in ranked:
+            if not remaining_demand:
+                break
+            wh_output = scored_wh
+            wh_id = wh_output.warehouse_id
+
+            allocated_from_wh = {}
+            warehouse_supplied = 0
+
+            for item_supply in wh_output.per_item_supplies:
+                item = item_supply.item_type
+                if item not in remaining_demand:
+                    continue
+                can_give = min(item_supply.supplied, remaining_demand[item])
+                if can_give <= 0:
+                    continue
+                allocated_from_wh[item] = can_give
+                remaining_demand[item] -= can_give
+                warehouse_supplied += can_give
+                total_supplied += can_give
+
+            if allocated_from_wh:
+                selected_warehouses.append(wh_id)
+                if len(selected_warehouses) > 1:
+                    split = True
+
+        total_shortage = sum(remaining_demand.values())
+        if total_supplied > 0 and total_requested > 0:
+            fulfilment_pct = (total_supplied / total_requested) * 100.0
+        else:
+            fulfilment_pct = 0.0
+
+        avg_distance = 0.0
+        selected_wh_names = []
+        if selected_warehouses:
+            dists = [scored_wh.distance_km for scored_wh in ranked if scored_wh.warehouse_id in selected_warehouses]
+            avg_distance = sum(dists) / len(dists) if dists else 0.0
+            wh_id_to_name = {wh["id"]: wh.get("name", f"WH-{wh['id']}") for wh in scenario.warehouses}
+            selected_wh_names = [wh_id_to_name[wid] for wid in selected_warehouses if wid in wh_id_to_name]
+
+        if total_supplied > 0 and total_requested > 0:
+            fulfilment_pct = (total_supplied / total_requested) * 100.0
+        else:
+            fulfilment_pct = 0.0
+
+        if selected_warehouses:
+            wh_list = ", ".join(selected_wh_names)
+            explanation = (
+                f"Allocated from warehouse(s) {wh_list} covering {fulfilment_pct:.1f}% of requested items, "
+                f"average distance {avg_distance:.1f} km. "
+                f"Split across {len(selected_warehouses)} warehouse(s)."
+            )
+        else:
+            explanation = "No warehouse could fulfill any requested items for this scenario."
 
         return XDMRAReliefResult(
             algorithm=self.name,
             scenario_id=scenario.scenario_id,
-            success=True,
-            warehouses_used=[top.warehouse_id],
-            fulfilment_pct=top.stock_coverage_pct,
-            shortage=int(shortage),
-            distance_km=top.distance_km,
+            success=total_supplied > 0,
+            warehouses_used=selected_warehouses,
+            fulfilment_pct=round(fulfilment_pct, 4),
+            shortage=int(total_shortage),
+            distance_km=round(avg_distance, 2),
             stock_violations=0,
-            split_allocation=False,
+            split_allocation=split,
             computation_time_ms=(time.perf_counter() - start_time) * 1000,
-            failure_reason=None
+            failure_reason=None,
+            total_requested=total_requested,
+            explanation=explanation,
         )
 
 
@@ -423,6 +496,8 @@ class XDMRAReliefResult:
     stock_violations: int
     split_allocation: bool
     computation_time_ms: float
+    total_requested: int
+    explanation: Optional[str] = None
     failure_reason: Optional[str] = None
 
 
@@ -436,11 +511,13 @@ class XDMRAReliefResultAdapter:
             "warehouses_used": result.warehouses_used,
             "fulfilment_pct": result.fulfilment_pct,
             "shortage": result.shortage,
+            "total_requested": result.total_requested,
             "distance_km": result.distance_km,
             "stock_violations": result.stock_violations,
             "split_allocation": result.split_allocation,
             "computation_time_ms": result.computation_time_ms,
             "failure_reason": result.failure_reason,
+            "explanation": result.explanation,
         }
 
 
@@ -476,8 +553,18 @@ class XDMRAShelterAdapter:
     name = "xdmra_shelter_allocation"
 
     def select(self, scenario) -> "XDMRAShelterResult":
-        """Execute X-DMRA shelter allocation for a scenario."""
+        """Execute X-DMRA shelter allocation for a scenario.
+
+        Implements true split allocation across multiple shelters:
+        1. Score and rank all shelters using production scoring.
+        2. Greedily allocate from each ranked shelter until demand is met.
+        3. allocated never exceeds min(demand remaining, available capacity).
+        4. Coverage is actual allocated / displaced.
+        5. Overcrowding >= 95% projected occupancy = critical.
+        """
         start_time = time.perf_counter()
+
+        total_displaced = scenario.displaced_people
 
         if not scenario.shelters:
             return XDMRAShelterResult(
@@ -486,12 +573,18 @@ class XDMRAShelterAdapter:
                 success=False,
                 shelters_used=[],
                 population_coverage_pct=0.0,
-                uncovered_people=scenario.displaced_people,
+                uncovered_people=total_displaced,
                 overcrowding_violations=0,
                 requirement_match_pct=0.0,
                 distance_km=0.0,
                 computation_time_ms=(time.perf_counter() - start_time) * 1000,
-                failure_reason="No shelters available"
+                total_displaced_people=total_displaced,
+                total_allocated_population=0,
+                overcrowding_risk_level="low",
+                medical_requirement_satisfied=False,
+                accessibility_requirement_satisfied=False,
+                failure_reason="No shelters available",
+                explanation="No shelter could accommodate displaced people: no shelters available.",
             )
 
         scoring_inputs = []
@@ -503,7 +596,7 @@ class XDMRAShelterAdapter:
                 shelter_longitude=shelter["longitude"],
                 incident_latitude=scenario.latitude,
                 incident_longitude=scenario.longitude,
-                total_displaced_people=scenario.displaced_people,
+                total_displaced_people=total_displaced,
                 total_capacity=shelter.get("total_capacity", 0),
                 occupied_capacity=shelter.get("occupied_capacity", 0),
                 reserved_capacity=shelter.get("reserved_capacity", 0),
@@ -534,30 +627,96 @@ class XDMRAShelterAdapter:
                 success=False,
                 shelters_used=[],
                 population_coverage_pct=0.0,
-                uncovered_people=scenario.displaced_people,
+                uncovered_people=total_displaced,
                 overcrowding_violations=0,
                 requirement_match_pct=0.0,
                 distance_km=0.0,
                 computation_time_ms=(time.perf_counter() - start_time) * 1000,
-                failure_reason="No eligible shelter found"
+                total_displaced_people=total_displaced,
+                total_allocated_population=0,
+                overcrowding_risk_level="low",
+                medical_requirement_satisfied=False,
+                accessibility_requirement_satisfied=False,
+                failure_reason="No eligible shelter found",
+                explanation="No shelter could accommodate displaced people for this scenario.",
             )
 
-        top = ranked[0]
-        coverage_pct = top.capacity_score / 30.0 * 100.0 if top.capacity_score > 0 else 0.0
-        overcrowding_violations = 1 if top.overcrowding_risk_level == "critical" else 0
+        remaining = total_displaced
+        allocated_total = 0
+        selected_shelter_ids = []
+        max_overcrowding_risk = "low"
+        med_req_sat = False
+        acc_req_sat = False
+
+        for scored_shelter in ranked:
+            if remaining <= 0:
+                break
+            shelter_output = scored_shelter
+            proposed = min(remaining, shelter_output.proposed_people_count)
+            if proposed <= 0:
+                continue
+            allocated_total += proposed
+            remaining -= proposed
+            selected_shelter_ids.append(shelter_output.shelter_id)
+            if shelter_output.overcrowding_risk_level == "critical":
+                max_overcrowding_risk = "critical"
+            elif shelter_output.overcrowding_risk_level == "high" and max_overcrowding_risk != "critical":
+                max_overcrowding_risk = "high"
+            if shelter_output.eligible:
+                if scenario.medical_required:
+                    med_req_sat = shelter_output.medical_support_score > 0
+                else:
+                    med_req_sat = True
+                if scenario.accessibility_required:
+                    acc_req_sat = shelter_output.accessibility_support_score > 0
+                else:
+                    acc_req_sat = True
+
+        coverage = (allocated_total / total_displaced * 100) if total_displaced > 0 else 0.0
+        uncovered = max(0, total_displaced - allocated_total)
+        overcrowded = 1 if max_overcrowding_risk == "critical" else 0
+
+        avg_distance = 0.0
+        selected_shelter_names = []
+        if selected_shelter_ids:
+            dists = [s.distance_km for s in ranked if s.shelter_id in selected_shelter_ids]
+            avg_distance = sum(dists) / len(dists) if dists else 0.0
+            shelter_id_to_name = {sh["id"]: sh.get("name", f"Shelter-{sh['id']}") for sh in scenario.shelters}
+            selected_shelter_names = [shelter_id_to_name[sid] for sid in selected_shelter_ids if sid in shelter_id_to_name]
+
+        both_sat = med_req_sat and acc_req_sat
+        one_sat = med_req_sat or acc_req_sat
+        req_match = 100.0 if both_sat else (50.0 if one_sat else 0.0)
+
+        if selected_shelter_ids:
+            sh_list = ", ".join(selected_shelter_names)
+            explanation = (
+                f"Allocated {allocated_total} of {total_displaced} displaced people to shelter(s) {sh_list}, "
+                f"average distance {avg_distance:.1f} km. Coverage: {coverage:.1f}%. "
+                f"Medical requirements satisfied: {'Yes' if med_req_sat else 'No'}. "
+                f"Accessibility requirements satisfied: {'Yes' if acc_req_sat else 'No'}."
+            )
+        else:
+            explanation = "No shelter could accommodate displaced people for this scenario."
 
         return XDMRAShelterResult(
             algorithm=self.name,
             scenario_id=scenario.scenario_id,
-            success=True,
-            shelters_used=[top.shelter_id],
-            population_coverage_pct=coverage_pct,
-            uncovered_people=int(scenario.displaced_people - top.proposed_people_count),
-            overcrowding_violations=overcrowding_violations,
-            requirement_match_pct=100.0 if top.eligible else 0.0,
-            distance_km=top.distance_km,
+            success=allocated_total > 0,
+            shelters_used=selected_shelter_ids,
+            population_coverage_pct=round(coverage, 4),
+            uncovered_people=int(uncovered),
+            overcrowding_violations=overcrowded,
+            requirement_match_pct=req_match,
+            distance_km=round(avg_distance, 2),
             computation_time_ms=(time.perf_counter() - start_time) * 1000,
-            failure_reason=None
+            total_displaced_people=total_displaced,
+            total_allocated_population=allocated_total,
+            overcrowding_risk_level=max_overcrowding_risk,
+            medical_requirement_satisfied=med_req_sat,
+            accessibility_requirement_satisfied=acc_req_sat,
+            failure_reason=None,
+            explanation=explanation,
         )
 
 
@@ -573,7 +732,13 @@ class XDMRAShelterResult:
     requirement_match_pct: float
     distance_km: float
     computation_time_ms: float
+    total_displaced_people: int
+    total_allocated_population: int
+    overcrowding_risk_level: str
+    medical_requirement_satisfied: bool
+    accessibility_requirement_satisfied: bool
     failure_reason: Optional[str] = None
+    explanation: Optional[str] = None
 
 
 class XDMRAShelterResultAdapter:
@@ -590,7 +755,13 @@ class XDMRAShelterResultAdapter:
             "requirement_match_pct": result.requirement_match_pct,
             "distance_km": result.distance_km,
             "computation_time_ms": result.computation_time_ms,
+            "total_displaced_people": result.total_displaced_people,
+            "total_allocated_population": result.total_allocated_population,
+            "overcrowding_risk_level": result.overcrowding_risk_level,
+            "medical_requirement_satisfied": result.medical_requirement_satisfied,
+            "accessibility_requirement_satisfied": result.accessibility_requirement_satisfied,
             "failure_reason": result.failure_reason,
+            "explanation": result.explanation,
         }
 
 

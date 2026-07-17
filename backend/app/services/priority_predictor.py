@@ -39,6 +39,17 @@ def load_model():
         print(f"Failed to load ML model: {e}")
         return False
 
+def get_model_pipeline():
+    """Return the cached model pipeline, loading it if necessary. Raises if not available."""
+    if not load_model():
+        raise RuntimeError(
+            f"Priority model not loaded. Ensure artifacts exist at: "
+            f"'{os.path.join(os.path.dirname(__file__), '..', '..', 'ml', 'artifacts')}'. "
+            f"Required files: priority_model.joblib, model_metadata.json"
+        )
+    return _model_pipeline
+
+
 def get_model_info() -> Dict[str, Any]:
     loaded = load_model()
     if not loaded:

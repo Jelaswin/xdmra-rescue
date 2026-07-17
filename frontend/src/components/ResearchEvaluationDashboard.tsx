@@ -181,8 +181,6 @@ export function ResearchEvaluationDashboard() {
       const results = await api.getExperimentResults(result.experiment_id);
       setExperimentResults(results);
 
-      const metrics = await api.getExperimentMetrics(result.experiment_id);
-
       if (selectedModule === 'all' || selectedModule === 'priority') {
         try {
           const pe = await api.getPriorityModelEvaluation();
@@ -248,6 +246,16 @@ export function ResearchEvaluationDashboard() {
     } finally {
       setExporting(null);
     }
+  };
+
+  const explainabilityElementLabels: Record<string, string> = {
+    explanation_exists: 'Explanation present',
+    resource_name: 'Resource name',
+    distance: 'Distance',
+    relevant_factor: 'Relevant factor',
+    limitation: 'Limitation',
+    route_risk: 'Route risk',
+    alternative_comparison: 'Alternative comparison',
   };
 
   return (
@@ -394,12 +402,28 @@ export function ResearchEvaluationDashboard() {
                 <ComparisonView
                   title="Relief Allocation Comparison"
                   table={{
-                    headers: ['Algorithm', 'Fulfilment', 'Mean Shortage', 'Warehouses Used', 'Latency'],
+                    headers: [
+                      'Algorithm',
+                      'Macro Fulfilment',
+                      'Wtd Fulfilment',
+                      'Mean Shortage',
+                      'Total Shortage',
+                      'Full',
+                      'Partial',
+                      'Failed',
+                      'Stock Viol.',
+                      'Latency',
+                    ],
                     rows: Object.entries(experimentResults.relief_comparison.metrics || {}).map(([algo, metrics]: [string, any]) => [
                       algo,
-                      formatPct(metrics?.mean_fulfilment_pct),
+                      formatPct(metrics?.macro_fulfilment_pct),
+                      formatPct(metrics?.weighted_fulfilment_pct),
                       formatValue(metrics?.mean_shortage),
-                      formatValue(metrics?.mean_warehouses_used),
+                      formatValue(metrics?.total_shortage),
+                      String(metrics?.fully_fulfilled_count ?? 'N/A'),
+                      String(metrics?.partial_fulfilment_count ?? 'N/A'),
+                      String(metrics?.failed_count ?? 'N/A'),
+                      String(metrics?.total_stock_violations ?? '0'),
                       formatValue(metrics?.mean_computation_time_ms) + ' ms',
                     ])
                   }}
@@ -410,12 +434,34 @@ export function ResearchEvaluationDashboard() {
                 <ComparisonView
                   title="Shelter Allocation Comparison"
                   table={{
-                    headers: ['Algorithm', 'Coverage', 'Uncovered', 'Overcrowding', 'Latency'],
+                    headers: [
+                      'Algorithm',
+                      'Macro Coverage',
+                      'Wtd Coverage',
+                      'Alloc OK',
+                      'Full',
+                      'Partial',
+                      'Failed',
+                      'Mean Uncv.',
+                      'Total Uncv.',
+                      'Crit. Ovc.',
+                      'Med %',
+                      'Acc %',
+                      'Latency',
+                    ],
                     rows: Object.entries(experimentResults.shelter_comparison.metrics || {}).map(([algo, metrics]: [string, any]) => [
                       algo,
-                      formatPct(metrics?.mean_population_coverage_pct),
+                      formatPct(metrics?.macro_population_coverage_pct),
+                      formatPct(metrics?.weighted_population_coverage_pct),
+                      String(metrics?.allocation_success_count ?? 'N/A'),
+                      String(metrics?.fully_covered_count ?? 'N/A'),
+                      String(metrics?.partial_covered_count ?? 'N/A'),
+                      String(metrics?.failed_count ?? 'N/A'),
                       formatValue(metrics?.mean_uncovered_people),
-                      formatValue(metrics?.overcrowding_violation_count),
+                      formatValue(metrics?.total_uncovered_people),
+                      String(metrics?.critical_overcrowding_cases ?? 'N/A'),
+                      formatPct(metrics?.medical_requirement_match_pct),
+                      formatPct(metrics?.accessibility_requirement_match_pct),
                       formatValue(metrics?.mean_computation_time_ms) + ' ms',
                     ])
                   }}
@@ -429,18 +475,25 @@ export function ResearchEvaluationDashboard() {
               <MetricsTable
                 title="Priority Model Evaluation"
                 metrics={[
-                  { label: 'Accuracy', value: formatPct(priorityEval.accuracy) },
+                  {
+                    label: 'Training Accuracy',
+                    value: 'Not recorded',
+                    note: priorityEval.training_accuracy_status === 'not_recorded' ? 'not stored in metadata' : '',
+                  },
+                  { label: 'Held-out Accuracy', value: formatPct(priorityEval.evaluation_accuracy) },
+                  { label: 'Macro F1', value: formatPct(priorityEval.evaluation_macro_f1 ?? priorityEval.macro_f1) },
+                  { label: 'Weighted F1', value: formatPct(priorityEval.evaluation_weighted_f1 ?? priorityEval.weighted_f1) },
                   { label: 'Macro Precision', value: formatPct(priorityEval.macro_precision) },
                   { label: 'Macro Recall', value: formatPct(priorityEval.macro_recall) },
-                  { label: 'Macro F1', value: formatPct(priorityEval.macro_f1) },
-                  { label: 'Weighted F1', value: formatPct(priorityEval.weighted_f1) },
-                  { label: 'Training Accuracy', value: formatPct(priorityEval.training_accuracy), note: 'Synthetic data' },
-                  { label: 'Evaluation Accuracy', value: formatPct(priorityEval.evaluation_accuracy) },
+                  { label: 'Dataset Size', value: priorityEval.evaluation_dataset_size ?? priorityEval.total_samples },
                   { label: 'Rule-ML Agreement', value: formatPct(priorityEval.rule_ml_agreement_rate) },
-                  { label: 'Rule-ML Disagreements', value: priorityEval.rule_ml_disagreement_count },
-                  { label: 'Prediction Latency (mean)', value: formatValue(priorityEval.prediction_latency_ms_mean) + ' ms' },
-                  { label: 'Prediction Latency (P95)', value: formatValue(priorityEval.prediction_latency_ms_p95) + ' ms' },
-                  { label: 'Total Samples', value: priorityEval.total_samples },
+                  { label: 'Latency (mean)', value: formatValue(priorityEval.prediction_latency_ms_mean) + ' ms' },
+                  { label: 'Latency (median)', value: formatValue(priorityEval.prediction_latency_ms_median) + ' ms' },
+                  { label: 'Latency (P95)', value: formatValue(priorityEval.prediction_latency_ms_p95) + ' ms' },
+                  {
+                    label: 'Overfitting Gap',
+                    value: priorityEval.overfitting_gap == null ? 'Not available' : formatValue(priorityEval.overfitting_gap * 100) + ' pp',
+                  },
                 ]}
               />
               {priorityEval.per_class_metrics && Object.keys(priorityEval.per_class_metrics).length > 0 && (
@@ -467,7 +520,9 @@ export function ResearchEvaluationDashboard() {
               {priorityEval.synthetic_data_note && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
                   {priorityEval.synthetic_data_note}
-                  {priorityEval.overfitting_concern_note && <p className="mt-1">{priorityEval.overfitting_concern_note}</p>}
+                  {priorityEval.overfitting_assessment && (
+                    <p className="mt-1 font-medium">{priorityEval.overfitting_assessment}</p>
+                  )}
                 </div>
               )}
             </>
@@ -488,14 +543,70 @@ export function ResearchEvaluationDashboard() {
           )}
 
           {explainability && (
-            <MetricsTable
-              title="Explainability Coverage"
-              metrics={Object.entries(explainability).map(([mod, data]: [string, any]) => ({
-                label: `${mod} module`,
-                value: formatPct(data.coverage_rate_pct),
-                note: `${data.explanation_count} explanations checked`
-              }))}
-            />
+            <>
+              <div className="space-y-4">
+                {Object.entries(explainability).map(([mod, data]: [string, any]) => (
+                  <div key={mod} className="bg-white rounded-lg shadow p-4">
+                    <h4 className="text-lg font-semibold mb-3 text-slate-700 capitalize">{mod} Explainability</h4>
+                    <div className="grid grid-cols-4 gap-4 mb-4">
+                      <div className="bg-slate-50 rounded p-3 text-center">
+                        <div className="text-2xl font-bold text-slate-800">{data.explanations_with_content}</div>
+                        <div className="text-xs text-slate-500">Explanations</div>
+                      </div>
+                      <div className="bg-slate-50 rounded p-3 text-center">
+                        <div className="text-2xl font-bold text-slate-800">{data.scenarios_evaluated}</div>
+                        <div className="text-xs text-slate-500">Scenarios</div>
+                      </div>
+                      <div className="bg-slate-50 rounded p-3 text-center">
+                        <div className="text-2xl font-bold text-slate-800">{data.total_checks}</div>
+                        <div className="text-xs text-slate-500">Total Checks</div>
+                      </div>
+                      <div className="bg-emerald-50 rounded p-3 text-center">
+                        <div className="text-2xl font-bold text-emerald-700">{data.overall_coverage_pct?.toFixed(1)}%</div>
+                        <div className="text-xs text-slate-500">Overall Coverage</div>
+                      </div>
+                    </div>
+
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50">
+                          <th className="py-2 px-3 text-left text-slate-600 font-medium">Element</th>
+                          <th className="py-2 px-3 text-right text-slate-600 font-medium">Numerator</th>
+                          <th className="py-2 px-3 text-right text-slate-600 font-medium">Denominator</th>
+                          <th className="py-2 px-3 text-right text-slate-600 font-medium">N/A</th>
+                          <th className="py-2 px-3 text-right text-slate-600 font-medium">Percentage</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.element_metrics && Object.entries(data.element_metrics).map(([elem, metrics]: [string, any]) => {
+                          const displayPct = metrics.percentage != null ? `${metrics.percentage.toFixed(1)}%` : 'N/A';
+                          const isNa = metrics.na_count > 0 && metrics.denominator === 0;
+                          const isZeroRouteRisk = elem === 'route_risk' && metrics.percentage === 0;
+                          return (
+                            <tr key={elem} className="border-b border-slate-100 hover:bg-slate-50">
+                              <td className="py-2 px-3 text-slate-700">
+                                {metrics.detail || elem}
+                                {isZeroRouteRisk && <span className="ml-2 text-xs text-amber-600">(no high-risk routes)</span>}
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono text-slate-800">{metrics.numerator}</td>
+                              <td className="py-2 px-3 text-right font-mono text-slate-800">{isNa ? '-' : metrics.denominator}</td>
+                              <td className="py-2 px-3 text-right font-mono text-slate-600">{metrics.na_count > 0 ? metrics.na_count : '-'}</td>
+                              <td className={`py-2 px-3 text-right font-mono font-medium ${isNa ? 'text-slate-400' : metrics.percentage >= 80 ? 'text-emerald-600' : metrics.percentage >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                                {isNa ? 'N/A' : displayPct}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+
+                    {data.baseline_note && (
+                      <p className="mt-3 text-xs text-slate-500">{data.baseline_note}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       </div>

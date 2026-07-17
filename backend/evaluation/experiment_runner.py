@@ -112,6 +112,7 @@ def run_rescue_experiment(
                     "score": result.score,
                     "computation_time_ms": result.computation_time_ms,
                     "failure_reason": result.failure_reason,
+                    "explanation": getattr(result, "explanation", None),
                     "priority_level": getattr(scenario, "priority_level", "unknown"),
                     "iteration": iteration,
                 })
@@ -159,11 +160,13 @@ def run_relief_experiment(
                     "warehouses_used": result.warehouses_used,
                     "fulfilment_pct": result.fulfilment_pct,
                     "shortage": result.shortage,
+                    "total_requested": result.total_requested,
                     "distance_km": result.distance_km,
                     "stock_violations": result.stock_violations,
                     "split_allocation": result.split_allocation,
                     "computation_time_ms": result.computation_time_ms,
                     "failure_reason": result.failure_reason,
+                    "explanation": getattr(result, "explanation", None),
                     "iteration": iteration,
                 })
             algo_results.extend(scenario_results)
@@ -214,7 +217,13 @@ def run_shelter_experiment(
                     "requirement_match_pct": result.requirement_match_pct,
                     "distance_km": result.distance_km,
                     "computation_time_ms": result.computation_time_ms,
+                    "total_displaced_people": result.total_displaced_people,
+                    "total_allocated_population": result.total_allocated_population,
+                    "overcrowding_risk_level": result.overcrowding_risk_level,
+                    "medical_requirement_satisfied": result.medical_requirement_satisfied,
+                    "accessibility_requirement_satisfied": result.accessibility_requirement_satisfied,
                     "failure_reason": result.failure_reason,
+                    "explanation": getattr(result, "explanation", None),
                     "iteration": iteration,
                 })
             algo_results.extend(scenario_results)
