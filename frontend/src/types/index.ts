@@ -614,6 +614,100 @@ export interface IncidentOperationalSummary {
   blocked_routes: number;
 }
 
+// ==========================================
+// PHASE 9: RESEARCH EVALUATION TYPES
+// ==========================================
+
+export interface ReliefComparisonMetrics {
+  macro_fulfilment_pct: number;
+  weighted_fulfilment_pct: number;
+  mean_shortage: number;
+  total_shortage: number;
+  allocation_success_count: number;
+  fully_fulfilled_count: number;
+  partial_fulfilment_count: number;
+  failed_count: number;
+  total_stock_violations: number;
+  success_rate_pct: number;
+  mean_computation_time_ms: number;
+  mean_warehouses_used: number;
+  split_allocation_count: number;
+}
+
+export interface ShelterComparisonMetrics {
+  macro_population_coverage_pct: number;
+  weighted_population_coverage_pct: number;
+  mean_uncovered_people: number;
+  total_uncovered_people: number;
+  allocation_success_count: number;
+  fully_covered_count: number;
+  partial_covered_count: number;
+  failed_count: number;
+  medical_requirement_match_pct: number | null;
+  accessibility_requirement_match_pct: number | null;
+  critical_overcrowding_cases: number;
+  overcrowding_violation_count: number;
+  success_rate_pct: number;
+  mean_computation_time_ms: number;
+  mean_shelters_used: number;
+}
+
+export interface PriorityEvaluationResult {
+  accuracy: number;
+  macro_precision: number;
+  macro_recall: number;
+  macro_f1: number;
+  weighted_f1: number;
+  confusion_matrix: Record<string, number>;
+  per_class_metrics: Record<string, {
+    precision: number;
+    recall: number;
+    f1_score: number;
+    support: number;
+  }>;
+  training_accuracy: number | null;
+  evaluation_accuracy: number;
+  prediction_latency_ms_mean: number;
+  prediction_latency_ms_median: number;
+  prediction_latency_ms_std: number;
+  prediction_latency_ms_min: number;
+  prediction_latency_ms_max: number;
+  prediction_latency_ms_p95: number;
+  rule_ml_agreement_rate: number;
+  rule_ml_disagreement_count: number;
+  total_samples: number;
+  synthetic_data_note: string;
+  overfitting_concern_note: string;
+  evaluation_timestamp: string;
+}
+
+export interface ExplainabilityModuleResult {
+  module: string;
+  explanation_count: number;
+  checked_count: number;
+  coverage_rate_pct: number;
+  element_coverage: {
+    explanation_exists: number;
+    resource_name: number;
+    distance: number;
+    relevant_factor: number;
+    limitation: number;
+    route_risk: number;
+    alternative_comparison: number;
+  };
+  mean_latency_ms: number | null;
+  synthetic_data_note: string;
+}
+
+export interface RescueComparisonMetrics {
+  success_rate_pct: number;
+  mean_distance_km: number;
+  median_distance_km: number;
+  mean_skill_match_pct: number;
+  mean_equipment_match_pct: number;
+  mean_computation_time_ms: number;
+}
+
 export interface CommandMapOverview {
   incidents: MapIncident[];
   teams: MapTeam[];

@@ -181,8 +181,6 @@ export function ResearchEvaluationDashboard() {
       const results = await api.getExperimentResults(result.experiment_id);
       setExperimentResults(results);
 
-      const metrics = await api.getExperimentMetrics(result.experiment_id);
-
       if (selectedModule === 'all' || selectedModule === 'priority') {
         try {
           const pe = await api.getPriorityModelEvaluation();
@@ -248,6 +246,16 @@ export function ResearchEvaluationDashboard() {
     } finally {
       setExporting(null);
     }
+  };
+
+  const explainabilityElementLabels: Record<string, string> = {
+    explanation_exists: 'Explanation present',
+    resource_name: 'Resource name',
+    distance: 'Distance',
+    relevant_factor: 'Relevant factor',
+    limitation: 'Limitation',
+    route_risk: 'Route risk',
+    alternative_comparison: 'Alternative comparison',
   };
 
   return (
@@ -394,12 +402,28 @@ export function ResearchEvaluationDashboard() {
                 <ComparisonView
                   title="Relief Allocation Comparison"
                   table={{
-                    headers: ['Algorithm', 'Fulfilment', 'Mean Shortage', 'Warehouses Used', 'Latency'],
+                    headers: [
+                      'Algorithm',
+                      'Macro Fulfilment',
+                      'Wtd Fulfilment',
+                      'Mean Shortage',
+                      'Total Shortage',
+                      'Full',
+                      'Partial',
+                      'Failed',
+                      'Stock Viol.',
+                      'Latency',
+                    ],
                     rows: Object.entries(experimentResults.relief_comparison.metrics || {}).map(([algo, metrics]: [string, any]) => [
                       algo,
-                      formatPct(metrics?.mean_fulfilment_pct),
+                      formatPct(metrics?.macro_fulfilment_pct),
+                      formatPct(metrics?.weighted_fulfilment_pct),
                       formatValue(metrics?.mean_shortage),
-                      formatValue(metrics?.mean_warehouses_used),
+                      formatValue(metrics?.total_shortage),
+                      String(metrics?.fully_fulfilled_count ?? 'N/A'),
+                      String(metrics?.partial_fulfilment_count ?? 'N/A'),
+                      String(metrics?.failed_count ?? 'N/A'),
+                      String(metrics?.total_stock_violations ?? '0'),
                       formatValue(metrics?.mean_computation_time_ms) + ' ms',
                     ])
                   }}
@@ -410,12 +434,32 @@ export function ResearchEvaluationDashboard() {
                 <ComparisonView
                   title="Shelter Allocation Comparison"
                   table={{
-                    headers: ['Algorithm', 'Coverage', 'Uncovered', 'Overcrowding', 'Latency'],
+                    headers: [
+                      'Algorithm',
+                      'Macro Coverage',
+                      'Wtd Coverage',
+                      'Mean Uncv.',
+                      'Total Uncv.',
+                      'Full',
+                      'Partial',
+                      'Failed',
+                      'Crit. Ovc.',
+                      'Med %',
+                      'Acc %',
+                      'Latency',
+                    ],
                     rows: Object.entries(experimentResults.shelter_comparison.metrics || {}).map(([algo, metrics]: [string, any]) => [
                       algo,
-                      formatPct(metrics?.mean_population_coverage_pct),
+                      formatPct(metrics?.macro_population_coverage_pct),
+                      formatPct(metrics?.weighted_population_coverage_pct),
                       formatValue(metrics?.mean_uncovered_people),
-                      formatValue(metrics?.overcrowding_violation_count),
+                      formatValue(metrics?.total_uncovered_people),
+                      String(metrics?.fully_covered_count ?? 'N/A'),
+                      String(metrics?.partial_covered_count ?? 'N/A'),
+                      String(metrics?.failed_count ?? 'N/A'),
+                      String(metrics?.critical_overcrowding_cases ?? 'N/A'),
+                      formatPct(metrics?.medical_requirement_match_pct),
+                      formatPct(metrics?.accessibility_requirement_match_pct),
                       formatValue(metrics?.mean_computation_time_ms) + ' ms',
                     ])
                   }}
@@ -429,18 +473,17 @@ export function ResearchEvaluationDashboard() {
               <MetricsTable
                 title="Priority Model Evaluation"
                 metrics={[
-                  { label: 'Accuracy', value: formatPct(priorityEval.accuracy) },
-                  { label: 'Macro Precision', value: formatPct(priorityEval.macro_precision) },
-                  { label: 'Macro Recall', value: formatPct(priorityEval.macro_recall) },
+                  { label: 'Training Score', value: formatPct(priorityEval.training_accuracy), note: 'Held-out test set accuracy' },
+                  { label: 'Evaluation Accuracy', value: formatPct(priorityEval.evaluation_accuracy) },
                   { label: 'Macro F1', value: formatPct(priorityEval.macro_f1) },
                   { label: 'Weighted F1', value: formatPct(priorityEval.weighted_f1) },
-                  { label: 'Training Accuracy', value: formatPct(priorityEval.training_accuracy), note: 'Synthetic data' },
-                  { label: 'Evaluation Accuracy', value: formatPct(priorityEval.evaluation_accuracy) },
+                  { label: 'Macro Precision', value: formatPct(priorityEval.macro_precision) },
+                  { label: 'Macro Recall', value: formatPct(priorityEval.macro_recall) },
+                  { label: 'Dataset Size', value: priorityEval.total_samples },
                   { label: 'Rule-ML Agreement', value: formatPct(priorityEval.rule_ml_agreement_rate) },
-                  { label: 'Rule-ML Disagreements', value: priorityEval.rule_ml_disagreement_count },
-                  { label: 'Prediction Latency (mean)', value: formatValue(priorityEval.prediction_latency_ms_mean) + ' ms' },
-                  { label: 'Prediction Latency (P95)', value: formatValue(priorityEval.prediction_latency_ms_p95) + ' ms' },
-                  { label: 'Total Samples', value: priorityEval.total_samples },
+                  { label: 'Latency (mean)', value: formatValue(priorityEval.prediction_latency_ms_mean) + ' ms' },
+                  { label: 'Latency (median)', value: formatValue(priorityEval.prediction_latency_ms_median) + ' ms' },
+                  { label: 'Latency (P95)', value: formatValue(priorityEval.prediction_latency_ms_p95) + ' ms' },
                 ]}
               />
               {priorityEval.per_class_metrics && Object.keys(priorityEval.per_class_metrics).length > 0 && (
@@ -467,7 +510,9 @@ export function ResearchEvaluationDashboard() {
               {priorityEval.synthetic_data_note && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
                   {priorityEval.synthetic_data_note}
-                  {priorityEval.overfitting_concern_note && <p className="mt-1">{priorityEval.overfitting_concern_note}</p>}
+                  {priorityEval.overfitting_concern_note && (
+                    <p className="mt-1 font-medium">{priorityEval.overfitting_concern_note}</p>
+                  )}
                 </div>
               )}
             </>
@@ -488,14 +533,37 @@ export function ResearchEvaluationDashboard() {
           )}
 
           {explainability && (
-            <MetricsTable
-              title="Explainability Coverage"
-              metrics={Object.entries(explainability).map(([mod, data]: [string, any]) => ({
-                label: `${mod} module`,
-                value: formatPct(data.coverage_rate_pct),
-                note: `${data.explanation_count} explanations checked`
-              }))}
-            />
+            <>
+              <ComparisonView
+                title="Explainability Coverage by Module"
+                table={{
+                  headers: [
+                    'Module',
+                    'Explanations',
+                    'Checks',
+                    'Coverage',
+                    'Resource Name',
+                    'Distance',
+                    'Relevant Factor',
+                    'Limitation',
+                    'Route Risk',
+                    'Alt. Comparison',
+                  ],
+                  rows: Object.entries(explainability).map(([mod, data]: [string, any]) => [
+                    mod,
+                    String(data.explanation_count ?? 0),
+                    String(data.checked_count ?? 0),
+                    formatPct(data.coverage_rate_pct),
+                    formatPct(data.element_coverage?.resource_name),
+                    formatPct(data.element_coverage?.distance),
+                    formatPct(data.element_coverage?.relevant_factor),
+                    formatPct(data.element_coverage?.limitation),
+                    formatPct(data.element_coverage?.route_risk),
+                    formatPct(data.element_coverage?.alternative_comparison),
+                  ])
+                }}
+              />
+            </>
           )}
         </div>
       </div>
