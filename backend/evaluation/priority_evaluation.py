@@ -41,8 +41,12 @@ class PriorityEvaluationResult:
     weighted_f1: float
     confusion_matrix: Dict[str, int]
     per_class_metrics: Dict[str, Dict[str, float]]
-    training_accuracy: Optional[float]
-    evaluation_accuracy: Optional[float]
+    training_accuracy: None
+    training_accuracy_status: str
+    evaluation_accuracy: float
+    evaluation_macro_f1: float
+    evaluation_weighted_f1: float
+    evaluation_dataset_size: int
     prediction_latency_ms_mean: float
     prediction_latency_ms_median: float
     prediction_latency_ms_std: float
@@ -53,7 +57,8 @@ class PriorityEvaluationResult:
     rule_ml_disagreement_count: int
     total_samples: int
     synthetic_data_note: str
-    overfitting_concern_note: str
+    overfitting_gap: None
+    overfitting_assessment: str
     evaluation_timestamp: str
 
 
@@ -216,10 +221,8 @@ def evaluate_priority_model(
     disagreement_count = len(predictions) - agreement_count
 
     training_accuracy = None
+    training_accuracy_status = "not_recorded"
     metadata = priority_predictor._model_metadata
-    if metadata:
-        best_metrics = metadata.get("best_metrics", {})
-        training_accuracy = best_metrics.get("accuracy")
 
     result = PriorityEvaluationResult(
         accuracy=float(accuracy),
@@ -229,8 +232,12 @@ def evaluate_priority_model(
         weighted_f1=weighted_f1,
         confusion_matrix=confusion,
         per_class_metrics=class_metrics,
-        training_accuracy=training_accuracy,
+        training_accuracy=None,
+        training_accuracy_status=training_accuracy_status,
         evaluation_accuracy=float(accuracy),
+        evaluation_macro_f1=float(macro_f1),
+        evaluation_weighted_f1=float(weighted_f1),
+        evaluation_dataset_size=len(predictions),
         prediction_latency_ms_mean=lat_stats["mean"],
         prediction_latency_ms_median=lat_stats["median"],
         prediction_latency_ms_std=lat_stats["std"],
@@ -245,11 +252,8 @@ def evaluate_priority_model(
             "Results do not reflect real-world disaster response performance. "
             "No statistical significance claim is made."
         ),
-        overfitting_concern_note=(
-            f"Training accuracy ({training_accuracy*100:.1f}%) vs "
-            f"Evaluation accuracy ({accuracy:.1f}%). "
-            f"Difference may indicate overfitting when using synthetic data."
-        ) if training_accuracy else "Training accuracy not available for comparison.",
+        overfitting_gap=None,
+        overfitting_assessment="cannot_be_determined_without_training_score",
         evaluation_timestamp=datetime.now(timezone.utc).isoformat(),
     )
 
@@ -263,14 +267,21 @@ def evaluate_priority_model(
 def _error_result(message: str) -> PriorityEvaluationResult:
     return PriorityEvaluationResult(
         accuracy=0.0, macro_precision=0.0, macro_recall=0.0, macro_f1=0.0, weighted_f1=0.0,
-        confusion_matrix={}, per_class_metrics={}, training_accuracy=None,
-        evaluation_accuracy=None, prediction_latency_ms_mean=0.0,
+        confusion_matrix={}, per_class_metrics={},
+        training_accuracy=None,
+        training_accuracy_status="not_recorded",
+        evaluation_accuracy=0.0,
+        evaluation_macro_f1=0.0,
+        evaluation_weighted_f1=0.0,
+        evaluation_dataset_size=0,
+        prediction_latency_ms_mean=0.0,
         prediction_latency_ms_median=0.0, prediction_latency_ms_std=0.0,
         prediction_latency_ms_min=0.0, prediction_latency_ms_max=0.0,
         prediction_latency_ms_p95=0.0, rule_ml_agreement_rate=0.0,
         rule_ml_disagreement_count=0, total_samples=0,
         synthetic_data_note="Evaluation failed: " + message,
-        overfitting_concern_note="",
+        overfitting_gap=None,
+        overfitting_assessment="cannot_be_determined_without_training_score",
         evaluation_timestamp=datetime.now(timezone.utc).isoformat(),
     )
 

@@ -665,8 +665,12 @@ export interface PriorityEvaluationResult {
     f1_score: number;
     support: number;
   }>;
-  training_accuracy: number | null;
+  training_accuracy: null;
+  training_accuracy_status: string;
   evaluation_accuracy: number;
+  evaluation_macro_f1: number;
+  evaluation_weighted_f1: number;
+  evaluation_dataset_size: number;
   prediction_latency_ms_mean: number;
   prediction_latency_ms_median: number;
   prediction_latency_ms_std: number;
@@ -677,25 +681,37 @@ export interface PriorityEvaluationResult {
   rule_ml_disagreement_count: number;
   total_samples: number;
   synthetic_data_note: string;
-  overfitting_concern_note: string;
+  overfitting_gap: null;
+  overfitting_assessment: string;
   evaluation_timestamp: string;
+}
+
+export interface ExplainabilityElementMetric {
+  numerator: number;
+  denominator: number;
+  percentage: number;
+  na_count: number;
+  detail: string;
 }
 
 export interface ExplainabilityModuleResult {
   module: string;
-  explanation_count: number;
-  checked_count: number;
-  coverage_rate_pct: number;
-  element_coverage: {
-    explanation_exists: number;
-    resource_name: number;
-    distance: number;
-    relevant_factor: number;
-    limitation: number;
-    route_risk: number;
-    alternative_comparison: number;
-  };
-  mean_latency_ms: number | null;
+  xdmra_algorithm: string;
+  scenarios_evaluated: number;
+  explanations_with_content: number;
+  total_checks: number;
+  total_passed: number;
+  overall_coverage_pct: number;
+  element_metrics: Record<string, ExplainabilityElementMetric>;
+  baseline_support: string;
+  baseline_note: string;
+  checks: Array<{
+    scenario_id: string;
+    algorithm: string;
+    element: string;
+    status: string;
+    detail: string;
+  }>;
   synthetic_data_note: string;
 }
 

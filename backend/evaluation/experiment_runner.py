@@ -112,6 +112,7 @@ def run_rescue_experiment(
                     "score": result.score,
                     "computation_time_ms": result.computation_time_ms,
                     "failure_reason": result.failure_reason,
+                    "explanation": getattr(result, "explanation", None),
                     "priority_level": getattr(scenario, "priority_level", "unknown"),
                     "iteration": iteration,
                 })
@@ -165,6 +166,7 @@ def run_relief_experiment(
                     "split_allocation": result.split_allocation,
                     "computation_time_ms": result.computation_time_ms,
                     "failure_reason": result.failure_reason,
+                    "explanation": getattr(result, "explanation", None),
                     "iteration": iteration,
                 })
             algo_results.extend(scenario_results)
@@ -221,6 +223,7 @@ def run_shelter_experiment(
                     "medical_requirement_satisfied": result.medical_requirement_satisfied,
                     "accessibility_requirement_satisfied": result.accessibility_requirement_satisfied,
                     "failure_reason": result.failure_reason,
+                    "explanation": getattr(result, "explanation", None),
                     "iteration": iteration,
                 })
             algo_results.extend(scenario_results)

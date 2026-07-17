@@ -372,29 +372,53 @@ def get_performance_benchmark():
 
 @router.get("/explainability")
 def get_explainability_coverage():
-    """Get explainability coverage results."""
+    """Get explainability coverage results for rescue, relief, and shelter."""
     exp_dir = EXPERIMENTS_DIR / "explainability_latest"
     exp_dir.mkdir(exist_ok=True, parents=True)
 
-    relief = get_relief_scenarios()
-    shelter = get_shelter_scenarios()
-    from evaluation.baselines.relief_baselines import get_all_relief_baselines
-    from evaluation.baselines.shelter_baselines import get_all_shelter_baselines
+    rescue_scenarios = get_rescue_scenarios()
+    relief_scenarios = get_relief_scenarios()
+    shelter_scenarios = get_shelter_scenarios()
 
-    rescue_exp = run_experiment("rescue", seed=42, output_dir=exp_dir / "rescue")
-    relief_exp = run_experiment("relief", seed=42, output_dir=exp_dir / "relief")
-    shelter_exp = run_experiment("shelter", seed=42, output_dir=exp_dir / "shelter")
+    from evaluation.baselines import (
+        get_all_rescue_algorithms_with_xdmra,
+        get_all_relief_algorithms_with_xdmra,
+        get_all_shelter_algorithms_with_xdmra,
+    )
+    from evaluation.experiment_runner import (
+        run_rescue_experiment,
+        run_relief_experiment,
+        run_shelter_experiment,
+    )
 
-    rescue_data = rescue_exp
-    relief_data = relief_exp
-    shelter_data = shelter_exp
+    rescue_baselines = get_all_rescue_algorithms_with_xdmra()
+    relief_baselines = get_all_relief_algorithms_with_xdmra()
+    shelter_baselines = get_all_shelter_algorithms_with_xdmra()
 
-    if rescue_data.get("results"):
-        from evaluation.explainability_evaluation import evaluate_rescue_explainability
-        rescue_results = evaluate_rescue_explainability(rescue_data["results"])
-        return {"rescue": rescue_results}
+    rescue_exp = run_rescue_experiment(rescue_scenarios, rescue_baselines, repeat=1, seed=42)
+    relief_exp = run_relief_experiment(relief_scenarios, relief_baselines, repeat=1, seed=42)
+    shelter_exp = run_shelter_experiment(shelter_scenarios, shelter_baselines, repeat=1, seed=42)
 
-    return {"status": "no_data"}
+    explain_results = run_explainability_evaluation(
+        rescue_results=rescue_exp["results"],
+        relief_results=relief_exp["results"],
+        shelter_results=shelter_exp["results"],
+    )
+
+    result = {}
+    for mod_name, exp_result in explain_results.items():
+        result[mod_name] = {
+            "scenarios_evaluated": exp_result.scenarios_evaluated,
+            "explanations_with_content": exp_result.explanations_with_content,
+            "total_checks": exp_result.total_checks,
+            "total_passed": exp_result.total_passed,
+            "overall_coverage_pct": exp_result.overall_coverage_pct,
+            "element_metrics": exp_result.element_metrics,
+            "baseline_support": exp_result.baseline_support,
+            "baseline_note": exp_result.baseline_note,
+        }
+
+    return result
 
 
 @router.get("/export/{experiment_id}")

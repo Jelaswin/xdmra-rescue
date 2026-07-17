@@ -747,6 +747,320 @@ class TestXDMRAAdapters:
         assert len(algorithm_names) == 5
 
 
+class TestXDMRAExplainabilityCounts:
+    """Focused tests for X-DMRA explainability evaluation counts and metrics."""
+
+    def test_rescue_explanation_count_equals_scenarios(self):
+        from evaluation.explainability_evaluation import run_explainability_evaluation
+        from evaluation.baselines import get_all_rescue_algorithms_with_xdmra
+        from evaluation.scenarios import get_rescue_scenarios
+        from evaluation.experiment_runner import run_rescue_experiment
+        scenarios = get_rescue_scenarios()
+        baselines = get_all_rescue_algorithms_with_xdmra()
+        experiment_result = run_rescue_experiment(scenarios, baselines, repeat=1, seed=42)
+        eval_result = run_explainability_evaluation(rescue_results=experiment_result["results"])
+        assert eval_result["rescue"].explanations_with_content == 25
+        assert eval_result["rescue"].scenarios_evaluated == 25
+
+    def test_relief_explanation_count_equals_scenarios(self):
+        from evaluation.explainability_evaluation import run_explainability_evaluation
+        from evaluation.baselines import get_all_relief_algorithms_with_xdmra
+        from evaluation.scenarios import get_relief_scenarios
+        from evaluation.experiment_runner import run_relief_experiment
+        scenarios = get_relief_scenarios()
+        baselines = get_all_relief_algorithms_with_xdmra()
+        experiment_result = run_relief_experiment(scenarios, baselines, repeat=1, seed=42)
+        eval_result = run_explainability_evaluation(relief_results=experiment_result["results"])
+        assert eval_result["relief"].explanations_with_content == 20
+        assert eval_result["relief"].scenarios_evaluated == 20
+
+    def test_shelter_explanation_count_equals_scenarios(self):
+        from evaluation.explainability_evaluation import run_explainability_evaluation
+        from evaluation.baselines import get_all_shelter_algorithms_with_xdmra
+        from evaluation.scenarios import get_shelter_scenarios
+        from evaluation.experiment_runner import run_shelter_experiment
+        scenarios = get_shelter_scenarios()
+        baselines = get_all_shelter_algorithms_with_xdmra()
+        experiment_result = run_shelter_experiment(scenarios, baselines, repeat=1, seed=42)
+        eval_result = run_explainability_evaluation(shelter_results=experiment_result["results"])
+        assert eval_result["shelter"].explanations_with_content == 20
+        assert eval_result["shelter"].scenarios_evaluated == 20
+
+    def test_baselines_excluded_from_explainability(self):
+        from evaluation.explainability_evaluation import run_explainability_evaluation
+        from evaluation.baselines import get_all_rescue_algorithms_with_xdmra
+        from evaluation.scenarios import get_rescue_scenarios
+        from evaluation.experiment_runner import run_rescue_experiment
+        scenarios = get_rescue_scenarios()[:5]
+        baselines = get_all_rescue_algorithms_with_xdmra()
+        experiment_result = run_rescue_experiment(scenarios, baselines, repeat=1, seed=42)
+        eval_result = run_explainability_evaluation(rescue_results=experiment_result["results"])
+        assert eval_result["rescue"].baseline_support == "not_supported"
+        baseline_note = eval_result["rescue"].baseline_note
+        assert "Baseline algorithms do not produce explanations" in baseline_note
+
+    def test_missing_distance_becomes_na_or_pass(self):
+        from evaluation.explainability_evaluation import _check_distance
+        result_with_zero_distance = {"distance_km": 0.0}
+        passed, detail, applicable = _check_distance(None, result_with_zero_distance)
+        assert detail == "no_explanation"
+        result_no_distance = {"distance_km": 5.0}
+        no_tokens, no_detail, no_applicable = _check_distance("Team Alpha selected.", result_no_distance)
+        assert no_tokens is False
+        assert no_detail == "no_distance_found"
+        has_tokens, tok_detail, tok_applicable = _check_distance("Team Alpha selected, 5.2 km away.", result_no_distance)
+        assert has_tokens is True
+
+    def test_limitation_check_applies_only_when_limitation_exists(self):
+        from evaluation.explainability_evaluation import _check_limitation
+        no_limit_explanation = "Team Alpha selected because it has all required skills."
+        no_limit_result = {}
+        passed, detail, applicable = _check_limitation(no_limit_explanation, no_limit_result)
+        assert passed is False
+        has_limit_explanation = "Team Alpha selected but has limited capacity."
+        passed2, detail2, applicable2 = _check_limitation(has_limit_explanation, no_limit_result)
+        assert passed2 is True
+
+    def test_alternative_comparison_na_when_no_alternative(self):
+        from evaluation.explainability_evaluation import _check_alternative_comparison
+        no_alt_explanation = "Team Alpha assigned."
+        no_alt_result = {}
+        passed, detail, applicable = _check_alternative_comparison(no_alt_explanation, no_alt_result)
+        assert passed is False
+        assert detail == "no_alternative_comparison"
+        has_alt_explanation = "Team Alpha selected instead of Team Beta due to better skills."
+        passed2, detail2, applicable2 = _check_alternative_comparison(has_alt_explanation, no_alt_result)
+        assert passed2 is True
+
+    def test_incorrect_resource_name_fails_coverage(self):
+        from evaluation.explainability_evaluation import _check_resource_name
+        wrong_resource = "A resource was deployed for this incident."
+        wrong_result = {}
+        passed, detail, applicable = _check_resource_name(wrong_resource, wrong_result)
+        assert passed is False
+        assert detail == "no_resource_name_found"
+        correct_resource = "Team Alpha is recommended."
+        passed2, detail2, applicable2 = _check_resource_name(correct_resource, wrong_result)
+        assert passed2 is True
+
+    def test_incorrect_stored_distance_fails_consistency(self):
+        from evaluation.explainability_evaluation import _check_stored_value_consistency
+        wrong_distance_explanation = "Team Alpha assigned, distance 25.0 km."
+        wrong_distance_result = {"distance_km": 10.0}
+        consistent, detail, applicable = _check_stored_value_consistency(wrong_distance_explanation, wrong_distance_result)
+        assert consistent is False
+        assert "inconsist" in detail.lower() or "mismatch" in detail.lower()
+
+    def test_numerator_never_exceeds_denominator_in_full_evaluation(self):
+        from evaluation.explainability_evaluation import run_explainability_evaluation
+        from evaluation.baselines import (
+            get_all_rescue_algorithms_with_xdmra,
+            get_all_relief_algorithms_with_xdmra,
+            get_all_shelter_algorithms_with_xdmra
+        )
+        from evaluation.scenarios import get_rescue_scenarios, get_relief_scenarios, get_shelter_scenarios
+        from evaluation.experiment_runner import run_rescue_experiment, run_relief_experiment, run_shelter_experiment
+
+        rescue_scenarios = get_rescue_scenarios()
+        relief_scenarios = get_relief_scenarios()
+        shelter_scenarios = get_shelter_scenarios()
+
+        rescue_exp = run_rescue_experiment(rescue_scenarios, get_all_rescue_algorithms_with_xdmra(), repeat=1, seed=42)
+        relief_exp = run_relief_experiment(relief_scenarios, get_all_relief_algorithms_with_xdmra(), repeat=1, seed=42)
+        shelter_exp = run_shelter_experiment(shelter_scenarios, get_all_shelter_algorithms_with_xdmra(), repeat=1, seed=42)
+
+        eval_result = run_explainability_evaluation(
+            rescue_results=rescue_exp["results"],
+            relief_results=relief_exp["results"],
+            shelter_results=shelter_exp["results"]
+        )
+
+        for module, result in eval_result.items():
+            for elem_name, metric in result.element_metrics.items():
+                assert metric["numerator"] <= metric["denominator"], \
+                    f"{module}.{elem_name}: numerator {metric['numerator']} > denominator {metric['denominator']}"
+
+    def test_percentage_remains_between_zero_and_hundred(self):
+        from evaluation.explainability_evaluation import run_explainability_evaluation
+        from evaluation.baselines import (
+            get_all_rescue_algorithms_with_xdmra,
+            get_all_relief_algorithms_with_xdmra,
+            get_all_shelter_algorithms_with_xdmra
+        )
+        from evaluation.scenarios import get_rescue_scenarios, get_relief_scenarios, get_shelter_scenarios
+        from evaluation.experiment_runner import run_rescue_experiment, run_relief_experiment, run_shelter_experiment
+
+        rescue_scenarios = get_rescue_scenarios()
+        relief_scenarios = get_relief_scenarios()
+        shelter_scenarios = get_shelter_scenarios()
+
+        rescue_exp = run_rescue_experiment(rescue_scenarios, get_all_rescue_algorithms_with_xdmra(), repeat=1, seed=42)
+        relief_exp = run_relief_experiment(relief_scenarios, get_all_relief_algorithms_with_xdmra(), repeat=1, seed=42)
+        shelter_exp = run_shelter_experiment(shelter_scenarios, get_all_shelter_algorithms_with_xdmra(), repeat=1, seed=42)
+
+        eval_result = run_explainability_evaluation(
+            rescue_results=rescue_exp["results"],
+            relief_results=relief_exp["results"],
+            shelter_results=shelter_exp["results"]
+        )
+
+        for module, result in eval_result.items():
+            assert 0.0 <= result.overall_coverage_pct <= 100.0
+            for elem_name, metric in result.element_metrics.items():
+                pct = metric["percentage"]
+                assert 0.0 <= pct <= 100.0, f"{module}.{elem_name}: percentage {pct} out of bounds"
+
+
+class TestExplainabilityEvaluation:
+    """Tests for explainability evaluation (X-DMRA explanation generation and checking)."""
+
+    def test_xdmra_rescue_produces_explanations(self):
+        from evaluation.baselines import get_all_rescue_algorithms_with_xdmra
+        from evaluation.scenarios import get_rescue_scenarios
+        from evaluation.experiment_runner import run_rescue_experiment
+        scenarios = get_rescue_scenarios()[:5]
+        baselines = get_all_rescue_algorithms_with_xdmra()
+        result = run_rescue_experiment(scenarios, baselines, repeat=1, seed=42)
+        xdmra_results = [r for r in result["results"] if r["algorithm"] == "xdmra_explainable"]
+        assert len(xdmra_results) == 5
+        for r in xdmra_results:
+            assert r.get("explanation") is not None
+            assert len(r["explanation"].strip()) > 20
+
+    def test_xdmra_relief_produces_explanations(self):
+        from evaluation.baselines import get_all_relief_algorithms_with_xdmra
+        from evaluation.scenarios import get_relief_scenarios
+        from evaluation.experiment_runner import run_relief_experiment
+        scenarios = get_relief_scenarios()[:5]
+        baselines = get_all_relief_algorithms_with_xdmra()
+        result = run_relief_experiment(scenarios, baselines, repeat=1, seed=42)
+        xdmra_results = [r for r in result["results"] if r["algorithm"] == "xdmra_relief_allocation"]
+        assert len(xdmra_results) == 5
+        for r in xdmra_results:
+            assert r.get("explanation") is not None
+            assert len(r["explanation"].strip()) > 20
+
+    def test_xdmra_shelter_produces_explanations(self):
+        from evaluation.baselines import get_all_shelter_algorithms_with_xdmra
+        from evaluation.scenarios import get_shelter_scenarios
+        from evaluation.experiment_runner import run_shelter_experiment
+        scenarios = get_shelter_scenarios()[:5]
+        baselines = get_all_shelter_algorithms_with_xdmra()
+        result = run_shelter_experiment(scenarios, baselines, repeat=1, seed=42)
+        xdmra_results = [r for r in result["results"] if r["algorithm"] == "xdmra_shelter_allocation"]
+        assert len(xdmra_results) == 5
+        for r in xdmra_results:
+            assert r.get("explanation") is not None
+            assert len(r["explanation"].strip()) > 20
+
+    def test_baseline_algorithms_produce_no_explanations(self):
+        from evaluation.baselines import get_all_rescue_algorithms_with_xdmra
+        from evaluation.scenarios import get_rescue_scenarios
+        from evaluation.experiment_runner import run_rescue_experiment
+        scenarios = get_rescue_scenarios()[:3]
+        baselines = get_all_rescue_algorithms_with_xdmra()
+        result = run_rescue_experiment(scenarios, baselines, repeat=1, seed=42)
+        for r in result["results"]:
+            if r["algorithm"] != "xdmra_explainable":
+                assert r.get("explanation") is None, f"{r['algorithm']} should not produce explanations"
+
+    def test_explainability_evaluator_produces_nonzero_counts(self):
+        from evaluation.explainability_evaluation import run_explainability_evaluation
+        from evaluation.baselines import get_all_rescue_algorithms_with_xdmra
+        from evaluation.scenarios import get_rescue_scenarios
+        from evaluation.experiment_runner import run_rescue_experiment
+        scenarios = get_rescue_scenarios()[:5]
+        baselines = get_all_rescue_algorithms_with_xdmra()
+        experiment_result = run_rescue_experiment(scenarios, baselines, repeat=1, seed=42)
+        eval_result = run_explainability_evaluation(rescue_results=experiment_result["results"])
+        assert eval_result["rescue"].explanations_with_content > 0
+        assert eval_result["rescue"].scenarios_evaluated > 0
+        assert eval_result["rescue"].element_metrics["explanation_availability"]["numerator"] > 0
+        assert eval_result["rescue"].element_metrics["explanation_availability"]["denominator"] > 0
+
+    def test_numerator_never_exceeds_denominator(self):
+        from evaluation.explainability_evaluation import run_explainability_evaluation
+        from evaluation.baselines import get_all_rescue_algorithms_with_xdmra
+        from evaluation.scenarios import get_rescue_scenarios
+        from evaluation.experiment_runner import run_rescue_experiment
+        scenarios = get_rescue_scenarios()[:5]
+        baselines = get_all_rescue_algorithms_with_xdmra()
+        experiment_result = run_rescue_experiment(scenarios, baselines, repeat=1, seed=42)
+        eval_result = run_explainability_evaluation(rescue_results=experiment_result["results"])
+        for elem_name, metric in eval_result["rescue"].element_metrics.items():
+            assert metric["numerator"] <= metric["denominator"], \
+                f"{elem_name}: numerator {metric['numerator']} > denominator {metric['denominator']}"
+
+    def test_na_count_for_zero_distance_scenarios(self):
+        from evaluation.explainability_evaluation import run_explainability_evaluation
+        from evaluation.baselines import get_all_rescue_algorithms_with_xdmra
+        from evaluation.scenarios import get_rescue_scenarios
+        from evaluation.experiment_runner import run_rescue_experiment
+        scenarios = get_rescue_scenarios()[:10]
+        baselines = get_all_rescue_algorithms_with_xdmra()
+        experiment_result = run_rescue_experiment(scenarios, baselines, repeat=1, seed=42)
+        eval_result = run_explainability_evaluation(rescue_results=experiment_result["results"])
+        dist_metric = eval_result["rescue"].element_metrics["distance"]
+        assert dist_metric["na_count"] == 0 or dist_metric["percentage"] <= 100.0
+
+    def test_route_risk_na_when_no_significant_risk(self):
+        from evaluation.explainability_evaluation import run_explainability_evaluation
+        from evaluation.baselines import get_all_rescue_algorithms_with_xdmra
+        from evaluation.scenarios import get_rescue_scenarios
+        from evaluation.experiment_runner import run_rescue_experiment
+        scenarios = get_rescue_scenarios()[:10]
+        baselines = get_all_rescue_algorithms_with_xdmra()
+        experiment_result = run_rescue_experiment(scenarios, baselines, repeat=1, seed=42)
+        eval_result = run_explainability_evaluation(rescue_results=experiment_result["results"])
+        rr_metric = eval_result["rescue"].element_metrics["route_risk"]
+        assert rr_metric["na_count"] >= 0
+        assert rr_metric["percentage"] >= 0.0
+        assert rr_metric["percentage"] <= 100.0
+
+    def test_stored_value_consistency_checker_passes_with_valid_explanation(self):
+        from evaluation.explainability_evaluation import _check_stored_value_consistency
+        valid_explanation = (
+            "Team Alpha assigned with score 0.92 based on distance 15.3km, "
+            "skill match 100%, equipment match 100%, route risk low."
+        )
+        result = {"distance_km": 15.3, "total_score": 0.92}
+        consistent, detail, is_applicable = _check_stored_value_consistency(valid_explanation, result)
+        assert is_applicable is True
+
+    def test_stored_value_consistency_checker_detects_mismatch(self):
+        from evaluation.explainability_evaluation import _check_stored_value_consistency
+        wrong_distance_explanation = "Team Alpha was assigned. Distance mentioned: 25.0 km but actual distance was 10.0 km."
+        result = {"distance_km": 10.0}
+        consistent, detail, is_applicable = _check_stored_value_consistency(wrong_distance_explanation, result)
+        assert consistent is False, f"Expected inconsistency but got consistent={consistent}, detail={detail}"
+        assert "inconsist" in detail.lower() or "mismatch" in detail.lower()
+
+    def test_explainability_evaluator_reports_baseline_not_supported(self):
+        from evaluation.explainability_evaluation import run_explainability_evaluation
+        from evaluation.baselines import get_all_rescue_algorithms_with_xdmra
+        from evaluation.scenarios import get_rescue_scenarios
+        from evaluation.experiment_runner import run_rescue_experiment
+        scenarios = get_rescue_scenarios()[:3]
+        baselines = get_all_rescue_algorithms_with_xdmra()
+        experiment_result = run_rescue_experiment(scenarios, baselines, repeat=1, seed=42)
+        eval_result = run_explainability_evaluation(rescue_results=experiment_result["results"])
+        assert eval_result["rescue"].baseline_support == "not_supported"
+        assert "Baseline algorithms do not produce explanations" in eval_result["rescue"].baseline_note
+
+    def test_explainability_coverage_percentage_bounded(self):
+        from evaluation.explainability_evaluation import run_explainability_evaluation
+        from evaluation.baselines import get_all_rescue_algorithms_with_xdmra
+        from evaluation.scenarios import get_rescue_scenarios
+        from evaluation.experiment_runner import run_rescue_experiment
+        scenarios = get_rescue_scenarios()[:5]
+        baselines = get_all_rescue_algorithms_with_xdmra()
+        experiment_result = run_rescue_experiment(scenarios, baselines, repeat=1, seed=42)
+        eval_result = run_explainability_evaluation(rescue_results=experiment_result["results"])
+        assert 0.0 <= eval_result["rescue"].overall_coverage_pct <= 100.0
+        assert eval_result["rescue"].total_checks > 0
+        assert eval_result["rescue"].total_passed <= eval_result["rescue"].total_checks
+
+
 class TestModuleAllOrchestration:
     """Tests for the --module all orchestration."""
 

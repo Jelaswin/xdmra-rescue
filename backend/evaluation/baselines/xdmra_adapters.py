@@ -340,6 +340,7 @@ class XDMRAReliefAdapter:
         total_requested = sum(scenario.items.values()) if scenario.items else 0
 
         if not scenario.warehouses or total_requested == 0:
+            reason = "No warehouses available" if not scenario.warehouses else "No demand"
             return XDMRAReliefResult(
                 algorithm=self.name,
                 scenario_id=scenario.scenario_id,
@@ -351,8 +352,9 @@ class XDMRAReliefAdapter:
                 stock_violations=0,
                 split_allocation=False,
                 computation_time_ms=(time.perf_counter() - start_time) * 1000,
-                failure_reason="No warehouses available" if not scenario.warehouses else "No demand",
-                total_requested=total_requested
+                failure_reason=reason,
+                total_requested=total_requested,
+                explanation="No warehouse could fulfill this request: " + reason + "."
             )
 
         scoring_inputs = []
@@ -401,7 +403,8 @@ class XDMRAReliefAdapter:
                 split_allocation=False,
                 computation_time_ms=(time.perf_counter() - start_time) * 1000,
                 failure_reason="No eligible warehouse found",
-                total_requested=total_requested
+                total_requested=total_requested,
+                explanation="No warehouse could fulfill any requested items for this scenario."
             )
 
         remaining_demand = {k: v for k, v in scenario.items.items() if v > 0}
@@ -442,9 +445,27 @@ class XDMRAReliefAdapter:
             fulfilment_pct = 0.0
 
         avg_distance = 0.0
+        selected_wh_names = []
         if selected_warehouses:
             dists = [scored_wh.distance_km for scored_wh in ranked if scored_wh.warehouse_id in selected_warehouses]
             avg_distance = sum(dists) / len(dists) if dists else 0.0
+            wh_id_to_name = {wh["id"]: wh.get("name", f"WH-{wh['id']}") for wh in scenario.warehouses}
+            selected_wh_names = [wh_id_to_name[wid] for wid in selected_warehouses if wid in wh_id_to_name]
+
+        if total_supplied > 0 and total_requested > 0:
+            fulfilment_pct = (total_supplied / total_requested) * 100.0
+        else:
+            fulfilment_pct = 0.0
+
+        if selected_warehouses:
+            wh_list = ", ".join(selected_wh_names)
+            explanation = (
+                f"Allocated from warehouse(s) {wh_list} covering {fulfilment_pct:.1f}% of requested items, "
+                f"average distance {avg_distance:.1f} km. "
+                f"Split across {len(selected_warehouses)} warehouse(s)."
+            )
+        else:
+            explanation = "No warehouse could fulfill any requested items for this scenario."
 
         return XDMRAReliefResult(
             algorithm=self.name,
@@ -458,7 +479,8 @@ class XDMRAReliefAdapter:
             split_allocation=split,
             computation_time_ms=(time.perf_counter() - start_time) * 1000,
             failure_reason=None,
-            total_requested=total_requested
+            total_requested=total_requested,
+            explanation=explanation,
         )
 
 
@@ -475,6 +497,7 @@ class XDMRAReliefResult:
     split_allocation: bool
     computation_time_ms: float
     total_requested: int
+    explanation: Optional[str] = None
     failure_reason: Optional[str] = None
 
 
@@ -494,6 +517,7 @@ class XDMRAReliefResultAdapter:
             "split_allocation": result.split_allocation,
             "computation_time_ms": result.computation_time_ms,
             "failure_reason": result.failure_reason,
+            "explanation": result.explanation,
         }
 
 
@@ -560,6 +584,7 @@ class XDMRAShelterAdapter:
                 medical_requirement_satisfied=False,
                 accessibility_requirement_satisfied=False,
                 failure_reason="No shelters available",
+                explanation="No shelter could accommodate displaced people: no shelters available.",
             )
 
         scoring_inputs = []
@@ -613,6 +638,7 @@ class XDMRAShelterAdapter:
                 medical_requirement_satisfied=False,
                 accessibility_requirement_satisfied=False,
                 failure_reason="No eligible shelter found",
+                explanation="No shelter could accommodate displaced people for this scenario.",
             )
 
         remaining = total_displaced
@@ -651,13 +677,27 @@ class XDMRAShelterAdapter:
         overcrowded = 1 if max_overcrowding_risk == "critical" else 0
 
         avg_distance = 0.0
+        selected_shelter_names = []
         if selected_shelter_ids:
             dists = [s.distance_km for s in ranked if s.shelter_id in selected_shelter_ids]
             avg_distance = sum(dists) / len(dists) if dists else 0.0
+            shelter_id_to_name = {sh["id"]: sh.get("name", f"Shelter-{sh['id']}") for sh in scenario.shelters}
+            selected_shelter_names = [shelter_id_to_name[sid] for sid in selected_shelter_ids if sid in shelter_id_to_name]
 
         both_sat = med_req_sat and acc_req_sat
         one_sat = med_req_sat or acc_req_sat
         req_match = 100.0 if both_sat else (50.0 if one_sat else 0.0)
+
+        if selected_shelter_ids:
+            sh_list = ", ".join(selected_shelter_names)
+            explanation = (
+                f"Allocated {allocated_total} of {total_displaced} displaced people to shelter(s) {sh_list}, "
+                f"average distance {avg_distance:.1f} km. Coverage: {coverage:.1f}%. "
+                f"Medical requirements satisfied: {'Yes' if med_req_sat else 'No'}. "
+                f"Accessibility requirements satisfied: {'Yes' if acc_req_sat else 'No'}."
+            )
+        else:
+            explanation = "No shelter could accommodate displaced people for this scenario."
 
         return XDMRAShelterResult(
             algorithm=self.name,
@@ -676,6 +716,7 @@ class XDMRAShelterAdapter:
             medical_requirement_satisfied=med_req_sat,
             accessibility_requirement_satisfied=acc_req_sat,
             failure_reason=None,
+            explanation=explanation,
         )
 
 
@@ -697,6 +738,7 @@ class XDMRAShelterResult:
     medical_requirement_satisfied: bool
     accessibility_requirement_satisfied: bool
     failure_reason: Optional[str] = None
+    explanation: Optional[str] = None
 
 
 class XDMRAShelterResultAdapter:
@@ -719,6 +761,7 @@ class XDMRAShelterResultAdapter:
             "medical_requirement_satisfied": result.medical_requirement_satisfied,
             "accessibility_requirement_satisfied": result.accessibility_requirement_satisfied,
             "failure_reason": result.failure_reason,
+            "explanation": result.explanation,
         }
 
 
