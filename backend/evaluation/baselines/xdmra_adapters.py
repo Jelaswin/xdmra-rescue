@@ -10,26 +10,22 @@ Haversine distances are explicitly labelled as straight-line distance.
 """
 
 import time
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Tuple
+from dataclasses import dataclass
+from typing import List, Dict, Any, Optional
 
 from app.services.allocation_service import (
     calculate_team_recommendations as production_rescue_recommendations,
-    haversine_distance
 )
-from app.services.relief_allocation_service import (
-    evaluate_relief_allocation as production_relief_evaluation
+from app.services.scoring.common import haversine_distance
+from app.services.scoring.rescue_scoring import RescueScoringInput, rank_rescue_teams
+from app.services.scoring.relief_scoring import (
+    ReliefVehicleInput, ReliefScoringInput, rank_relief_warehouses,
 )
-from app.services.shelter_allocation_service import (
-    evaluate_shelter_allocation as production_shelter_evaluation
+from app.services.scoring.shelter_scoring import (
+    ShelterScoringInput, rank_shelters,
 )
 
-
-# Import route model enums
-from app.models import TeamAvailability
-
-# Use the same route risk enum
-from app.models import RouteRisk
+from app.models import TeamAvailability, RouteRisk
 
 
 def _str_to_set(str_list: List[str]) -> set:
@@ -57,7 +53,7 @@ class _FakeTeam:
         self.name = name
         self.latitude = latitude
         self.longitude = longitude
-        self.availability_status = availability_status
+        self.availability_status = TeamAvailability(availability_status)
         self.skills = skills
         self.equipment = equipment
         self.capacity = capacity
@@ -95,8 +91,8 @@ class _FakeRouteCondition:
     ):
         self.incident_id = incident_id
         self.rescue_team_id = rescue_team_id
-        self.risk_level = risk_level
-        self.is_blocked = is_blocked
+        self.risk_level = RouteRisk(risk_level)
+        self.is_blocked = 1 if is_blocked else 0
         self.estimated_delay_minutes = estimated_delay_minutes
 
 
@@ -315,24 +311,16 @@ def run_rescue_with_xdmra(scenarios: List, algorithms: List[str], repeat: int = 
 
 # ============================================================================
 # X-DMRA Relief Adapter
-# Uses same multi-factor scoring as production service:
+# Uses exact production scoring via shared scoring module:
 # WEIGHT_STOCK_COVERAGE=35, WEIGHT_ITEM_COVERAGE=15, WEIGHT_DISTANCE=15,
 # WEIGHT_VEHICLE_CAPACITY=15, WEIGHT_ROUTE_SAFETY=10, WEIGHT_WORKLOAD=10
 # ============================================================================
 
-WEIGHT_STOCK_COVERAGE = 35.0
-WEIGHT_ITEM_COVERAGE = 15.0
-WEIGHT_DISTANCE = 15.0
-WEIGHT_VEHICLE_CAPACITY = 15.0
-WEIGHT_ROUTE_SAFETY = 10.0
-WEIGHT_WORKLOAD_REDUCTION = 10.0
-
 
 class XDMRAReliefAdapter:
-    """X-DMRA relief allocation using multi-factor scoring.
+    """X-DMRA relief allocation using exact production scoring.
 
-    Mirrors the production relief_allocation_service scoring approach
-    without requiring database access.
+    Calls shared scoring module which mirrors production behavior.
     """
 
     name = "xdmra_relief_allocation"
@@ -356,82 +344,47 @@ class XDMRAReliefAdapter:
                 failure_reason="No warehouses available"
             )
 
-        demands = scenario.items
-        total_demanded = sum(demands.values()) if demands else 0
-
-        best_score = -float('inf')
-        best_wh_id = None
-        best_wh_name = None
-        best_distance = 0.0
-        best_fulfilment = 0.0
-        best_shortage = total_demanded
-        best_violations = 0
-
-        scored_warehouses = []
-
+        scoring_inputs = []
         for wh in scenario.warehouses:
-            if wh.get("operating_status") not in ["active", "limited"]:
-                continue
-
             inv = wh.get("inventory", {})
-            route_blocked = wh.get("route_blocked", False)
-            if route_blocked:
-                continue
+            vehicles = wh.get("vehicles", [])
+            route_risk_str = wh.get("route_risk", "low")
 
-            distance = haversine_distance(
-                scenario.latitude, scenario.longitude,
-                wh["latitude"], wh["longitude"]
+            inp = ReliefScoringInput(
+                warehouse_id=wh["id"],
+                operating_status=wh.get("operating_status", "active"),
+                warehouse_latitude=wh["latitude"],
+                warehouse_longitude=wh["longitude"],
+                incident_latitude=scenario.latitude,
+                incident_longitude=scenario.longitude,
+                requested_quantities=scenario.items,
+                available_quantities=inv,
+                eligible_vehicles=[
+                    ReliefVehicleInput(
+                        vehicle_id=v.get("id", 0),
+                        capacity_units=v.get("capacity_units", 0),
+                        availability_status=v.get("availability_status", "available"),
+                    )
+                    for v in vehicles
+                ],
+                warehouse_maximum_dispatch_capacity=wh.get("maximum_dispatch_capacity", 0),
+                warehouse_current_dispatch_workload=wh.get("current_workload", 0),
+                route_risk=route_risk_str,
+                route_blocked=wh.get("route_blocked", False),
+                estimated_delay_minutes=wh.get("estimated_delay_minutes", 0),
             )
+            scoring_inputs.append(inp)
 
-            total_stock = sum(inv.get(item, 0) for item in demands.keys())
-            stock_coverage_pct = min(100.0, (total_stock / total_demanded * 100)) if total_demanded > 0 else 0
+        ranked = rank_relief_warehouses(scoring_inputs)
 
-            items_covered = sum(
-                min(inv.get(item, 0), qty) for item, qty in demands.items()
-            )
-            item_coverage_pct = (items_covered / total_demanded * 100) if total_demanded > 0 else 0
-
-            distance_score = max(0.0, 30.0 - (distance / 50.0) * 30.0)
-
-            route_risk_score = 0.0 if not route_blocked else 10.0
-
-            workload = wh.get("current_workload", 0)
-            workload_score = max(0.0, 10.0 - workload)
-
-            score = (
-                (stock_coverage_pct / 100.0) * WEIGHT_STOCK_COVERAGE +
-                (item_coverage_pct / 100.0) * WEIGHT_ITEM_COVERAGE +
-                (distance_score / 30.0) * WEIGHT_DISTANCE +
-                5.0 * WEIGHT_VEHICLE_CAPACITY / 10.0 +
-                (1.0 - route_risk_score / 10.0) * WEIGHT_ROUTE_SAFETY +
-                (workload_score / 10.0) * WEIGHT_WORKLOAD_REDUCTION
-            )
-
-            scored_warehouses.append({
-                "id": wh["id"],
-                "name": wh.get("name", f"Warehouse {wh['id']}"),
-                "score": score,
-                "distance": distance,
-                "stock_coverage": stock_coverage_pct,
-                "item_coverage": item_coverage_pct,
-            })
-
-            if score > best_score:
-                best_score = score
-                best_wh_id = wh["id"]
-                best_wh_name = wh.get("name", f"Warehouse {wh['id']}")
-                best_distance = distance
-                best_fulfilment = item_coverage_pct
-                best_shortage = total_demanded - items_covered
-
-        if best_wh_id is None:
+        if not ranked:
             return XDMRAReliefResult(
                 algorithm=self.name,
                 scenario_id=scenario.scenario_id,
                 success=False,
                 warehouses_used=[],
                 fulfilment_pct=0.0,
-                shortage=total_demanded,
+                shortage=sum(scenario.items.values()) if scenario.items else 0,
                 distance_km=0.0,
                 stock_violations=0,
                 split_allocation=False,
@@ -439,15 +392,19 @@ class XDMRAReliefAdapter:
                 failure_reason="No eligible warehouse found"
             )
 
+        top = ranked[0]
+        total_demanded = sum(scenario.items.values()) if scenario.items else 1
+        shortage = top.total_requested_units - top.total_supplied_units
+
         return XDMRAReliefResult(
             algorithm=self.name,
             scenario_id=scenario.scenario_id,
             success=True,
-            warehouses_used=[best_wh_id],
-            fulfilment_pct=best_fulfilment,
-            shortage=int(best_shortage),
-            distance_km=best_distance,
-            stock_violations=best_violations,
+            warehouses_used=[top.warehouse_id],
+            fulfilment_pct=top.stock_coverage_pct,
+            shortage=int(shortage),
+            distance_km=top.distance_km,
+            stock_violations=0,
             split_allocation=False,
             computation_time_ms=(time.perf_counter() - start_time) * 1000,
             failure_reason=None
@@ -504,25 +461,16 @@ def get_all_relief_algorithms_with_xdmra() -> Dict[str, Any]:
 
 # ============================================================================
 # X-DMRA Shelter Adapter
-# Uses same multi-factor scoring as production service:
+# Uses exact production scoring via shared scoring module:
 # WEIGHT_CAPACITY=30, WEIGHT_DISTANCE=15, WEIGHT_VULNERABILITY=20,
 # WEIGHT_UTILITIES=15, WEIGHT_OVERCROWDING=10, WEIGHT_ROUTE_SAFETY=5, WEIGHT_WORKLOAD=5
 # ============================================================================
 
-WEIGHT_CAPACITY = 30.0
-WEIGHT_DISTANCE_SHELTER = 15.0
-WEIGHT_VULNERABILITY = 20.0
-WEIGHT_UTILITIES = 15.0
-WEIGHT_OVERCROWDING = 10.0
-WEIGHT_ROUTE_SAFETY_SHELTER = 5.0
-WEIGHT_WORKLOAD_SHELTER = 5.0
-
 
 class XDMRAShelterAdapter:
-    """X-DMRA shelter allocation using multi-factor scoring.
+    """X-DMRA shelter allocation using exact production scoring.
 
-    Mirrors the production shelter_allocation_service scoring approach
-    without requiring database access.
+    Calls shared scoring module which mirrors production behavior.
     """
 
     name = "xdmra_shelter_allocation"
@@ -546,75 +494,40 @@ class XDMRAShelterAdapter:
                 failure_reason="No shelters available"
             )
 
-        best_score = -float('inf')
-        best_shelter = None
-        best_distance = 0.0
-        best_coverage = 0.0
-        best_uncovered = scenario.displaced_people
-        best_overcrowding = 0
-        best_req_match = 0.0
-
+        scoring_inputs = []
         for shelter in scenario.shelters:
-            if shelter.get("operating_status") != "open":
-                continue
-
-            available = shelter.get("total_capacity", 0) - shelter.get("occupied_capacity", 0) - shelter.get("reserved_capacity", 0)
-            if available <= 0:
-                continue
-
-            route_blocked = shelter.get("route_blocked", False)
-            if route_blocked:
-                continue
-
-            if scenario.medical_required and not shelter.get("has_medical_support", False):
-                continue
-            if scenario.accessibility_required and not shelter.get("has_accessibility_support", False):
-                continue
-
-            distance = haversine_distance(
-                scenario.latitude, scenario.longitude,
-                shelter["latitude"], shelter["longitude"]
+            inp = ShelterScoringInput(
+                shelter_id=shelter["id"],
+                operating_status=shelter.get("operating_status", "open"),
+                shelter_latitude=shelter["latitude"],
+                shelter_longitude=shelter["longitude"],
+                incident_latitude=scenario.latitude,
+                incident_longitude=scenario.longitude,
+                total_displaced_people=scenario.displaced_people,
+                total_capacity=shelter.get("total_capacity", 0),
+                occupied_capacity=shelter.get("occupied_capacity", 0),
+                reserved_capacity=shelter.get("reserved_capacity", 0),
+                maximum_daily_intake=shelter.get("maximum_daily_intake", 0),
+                current_intake_workload=shelter.get("current_workload", 0),
+                has_medical_support=bool(shelter.get("has_medical_support", False)),
+                has_accessibility_support=bool(shelter.get("has_accessibility_support", False)),
+                has_women_child_safe_area=bool(shelter.get("has_women_child_safe_area", False)),
+                has_food=bool(shelter.get("has_food", False)),
+                has_drinking_water=bool(shelter.get("has_drinking_water", False)),
+                has_sanitation=bool(shelter.get("has_sanitation", False)),
+                has_power_backup=bool(shelter.get("has_power_backup", False)),
+                supports_long_term_stay=bool(shelter.get("supports_long_term_stay", False)),
+                mandatory_medical_required=bool(scenario.medical_required),
+                mandatory_accessibility_required=bool(scenario.accessibility_required),
+                route_risk=shelter.get("route_risk", "low"),
+                route_blocked=shelter.get("route_blocked", False),
+                estimated_delay_minutes=shelter.get("estimated_delay_minutes", 0),
             )
+            scoring_inputs.append(inp)
 
-            capacity_pct = min(100.0, (available / scenario.displaced_people * 100)) if scenario.displaced_people > 0 else 0
-            distance_score = max(0.0, 30.0 - (distance / 50.0) * 30.0)
+        ranked = rank_shelters(scoring_inputs)
 
-            occupancy_pct = ((shelter.get("occupied_capacity", 0) + shelter.get("reserved_capacity", 0)) / shelter.get("total_capacity", 1)) * 100
-            if occupancy_pct >= 95:
-                overcrowd_penalty = 10.0
-            elif occupancy_pct >= 85:
-                overcrowd_penalty = 5.0
-            else:
-                overcrowd_penalty = 0.0
-
-            route_risk_penalty = 5.0 if route_blocked else 0.0
-
-            workload = shelter.get("current_workload", 0)
-            workload_score = max(0.0, 5.0 - workload)
-
-            score = (
-                (capacity_pct / 100.0) * WEIGHT_CAPACITY +
-                (distance_score / 30.0) * WEIGHT_DISTANCE_SHELTER +
-                5.0 * WEIGHT_VULNERABILITY / 10.0 +
-                5.0 * WEIGHT_UTILITIES / 10.0 +
-                (1.0 - overcrowd_penalty / 10.0) * WEIGHT_OVERCROWDING +
-                (1.0 - route_risk_penalty / 5.0) * WEIGHT_ROUTE_SAFETY_SHELTER +
-                (workload_score / 5.0) * WEIGHT_WORKLOAD_SHELTER
-            )
-
-            if score > best_score:
-                best_score = score
-                best_shelter = shelter
-                best_distance = distance
-                best_coverage = min(100.0, (available / scenario.displaced_people * 100)) if scenario.displaced_people > 0 else 0
-                best_uncovered = max(0, scenario.displaced_people - available)
-                best_overcrowding = 1 if occupancy_pct >= 95 else 0
-                best_req_match = 100.0 if (
-                    (not scenario.medical_required or shelter.get("has_medical_support", False)) and
-                    (not scenario.accessibility_required or shelter.get("has_accessibility_support", False))
-                ) else 0.0
-
-        if best_shelter is None:
+        if not ranked:
             return XDMRAShelterResult(
                 algorithm=self.name,
                 scenario_id=scenario.scenario_id,
@@ -629,16 +542,20 @@ class XDMRAShelterAdapter:
                 failure_reason="No eligible shelter found"
             )
 
+        top = ranked[0]
+        coverage_pct = top.capacity_score / 30.0 * 100.0 if top.capacity_score > 0 else 0.0
+        overcrowding_violations = 1 if top.overcrowding_risk_level == "critical" else 0
+
         return XDMRAShelterResult(
             algorithm=self.name,
             scenario_id=scenario.scenario_id,
             success=True,
-            shelters_used=[best_shelter["id"]],
-            population_coverage_pct=best_coverage,
-            uncovered_people=int(best_uncovered),
-            overcrowding_violations=best_overcrowding,
-            requirement_match_pct=best_req_match,
-            distance_km=best_distance,
+            shelters_used=[top.shelter_id],
+            population_coverage_pct=coverage_pct,
+            uncovered_people=int(scenario.displaced_people - top.proposed_people_count),
+            overcrowding_violations=overcrowding_violations,
+            requirement_match_pct=100.0 if top.eligible else 0.0,
+            distance_km=top.distance_km,
             computation_time_ms=(time.perf_counter() - start_time) * 1000,
             failure_reason=None
         )
