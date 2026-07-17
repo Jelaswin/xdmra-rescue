@@ -1,4 +1,6 @@
 import pytest
+import hashlib
+from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -316,17 +318,35 @@ def test_missing_model_returns_controlled_error(monkeypatch):
     assert response.status_code == 503
 
 def test_retrain_endpoint():
-    # It takes too long to actually retrain in a unit test suite, but we can verify it exists
-    # We will mock the import to just return success
-    class MockTrain:
-        def __init__(self): pass
-        def __call__(self): pass
-    import sys
-    # Safely skip execution inside the endpoint if possible, or just expect it to run
-    # Since we can't easily patch local imports inside the function, we'll let it fail or succeed
-    # Actually, we can just call it - it takes 1 second
-    response = client.post("/api/ml/retrain")
-    assert response.status_code in [200, 500] # It might fail if run concurrently with model locks
+    from unittest.mock import patch
+    with patch("ml.training.train_priority_model.train_models"):
+        response = client.post("/api/ml/retrain")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+
+def test_model_metadata_immutable():
+    metadata_path = os.path.join(os.path.dirname(__file__), '..', 'ml', 'artifacts', 'model_metadata.json')
+    with open(metadata_path, 'rb') as f:
+        before_hash = hashlib.sha256(f.read()).hexdigest()
+    from app.services.priority_predictor import load_model, predict_priority
+    from app.models import Incident, IncidentSeverity
+    load_model()
+    class FakeIncident:
+        id = 999
+        incident_type = "earthquake"
+        severity = IncidentSeverity.medium
+        affected_people = 5
+        injured_people = 2
+        trapped_people = 0
+        vulnerable_people = 1
+        children_count = 1
+        elderly_count = 0
+        created_at = datetime.now(timezone.utc)
+    predict_priority(FakeIncident())
+    with open(metadata_path, 'rb') as f:
+        after_hash = hashlib.sha256(f.read()).hexdigest()
+    assert before_hash == after_hash, "model_metadata.json was modified during prediction"
 
 def test_available_teams_ranked():
     # 6. Available teams are ranked.

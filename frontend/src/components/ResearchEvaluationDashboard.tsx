@@ -133,6 +133,7 @@ function ConfusionMatrixView({ matrix, classes }: { matrix: Record<string, numbe
 
 export function ResearchEvaluationDashboard() {
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedModule, setSelectedModule] = useState<string>('all');
   const [seed, setSeed] = useState(42);
@@ -229,6 +230,26 @@ export function ResearchEvaluationDashboard() {
     return `${Number(v).toFixed(2)}%`;
   };
 
+  const downloadExport = async (format: 'csv' | 'json' | 'markdown' | 'latex') => {
+    if (!experimentId) return;
+    setExporting(format);
+    try {
+      const blob = await api.exportExperimentResults(experimentId, format);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `experiment_${experimentId}.${format === 'latex' ? 'tex' : format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setError(`Export (${format}) failed: ${e.message}`);
+    } finally {
+      setExporting(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
@@ -295,6 +316,39 @@ export function ResearchEvaluationDashboard() {
         {experimentId && (
           <div className="mt-4 bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded text-sm">
             Experiment <strong>{experimentId}</strong> {experimentStatus}. Results ready below.
+          </div>
+        )}
+
+        {experimentId && (
+          <div className="mt-4 flex gap-2 flex-wrap">
+            <button
+              onClick={() => downloadExport('csv')}
+              disabled={exporting === 'csv'}
+              className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded disabled:opacity-50"
+            >
+              {exporting === 'csv' ? 'Exporting...' : 'Download CSV'}
+            </button>
+            <button
+              onClick={() => downloadExport('json')}
+              disabled={exporting === 'json'}
+              className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded disabled:opacity-50"
+            >
+              {exporting === 'json' ? 'Exporting...' : 'Download JSON'}
+            </button>
+            <button
+              onClick={() => downloadExport('markdown')}
+              disabled={exporting === 'markdown'}
+              className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded disabled:opacity-50"
+            >
+              {exporting === 'markdown' ? 'Exporting...' : 'Download Markdown'}
+            </button>
+            <button
+              onClick={() => downloadExport('latex')}
+              disabled={exporting === 'latex'}
+              className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded disabled:opacity-50"
+            >
+              {exporting === 'latex' ? 'Exporting...' : 'Download LaTeX'}
+            </button>
           </div>
         )}
       </div>

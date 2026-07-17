@@ -171,6 +171,28 @@ See `backend/app/services/COMMAND_DASHBOARD.md` for detailed documentation.
 - `GET /api/command/incidents/{incident_id}/timeline` - Unified incident timeline
 - `GET /api/command/map-overview` - Command center map data
 
+## Phase 9: Research Evaluation and Explainable Baseline Comparison
+
+Added a comprehensive Research Evaluation framework for reproducible X-DMRA versus baseline comparison.
+
+- **Research Evaluation Dashboard**: Frontend tab with module selection, seed/scenario controls, rescue/relief/shelter comparison tables, priority model evaluation with confusion matrix, performance benchmarks, and explainability coverage.
+- **Shared Scoring Architecture**: Production services and evaluation adapters use identical shared scoring functions from `backend/app/services/scoring/`. No duplicated formulas. No evaluation-time database mutations.
+- **Six Rescue Algorithms**: `random_available`, `first_available`, `nearest_available`, `skill_match_only`, `priority_distance_only`, and `xdmra_explainable`.
+- **Five Relief Algorithms**: `first_stocked_warehouse`, `nearest_stocked_warehouse`, `highest_stock_coverage`, `single_warehouse_only`, and `xdmra_relief_allocation`.
+- **Five Shelter Algorithms**: `nearest_available_shelter`, `largest_capacity_shelter`, `first_available_shelter`, `capacity_only`, and `xdmra_shelter_allocation`.
+- **Deterministic Scenarios**: 25 rescue, 20 relief, 20 shelter scenarios with fixed seed 42 for reproducibility.
+- **Priority Model Evaluation**: Accuracy, macro precision/recall/F1, weighted F1, confusion matrix, rule-versus-ML agreement rate, prediction latency, training vs evaluation accuracy comparison.
+- **Explainability Coverage**: Structural checks for resource-name, distance, factor, limitation, route-risk, and alternative-comparison coverage.
+- **Performance Benchmarking**: Latency benchmarks (mean, median, P95, min, max) for key X-DMRA operations.
+- **Experiment Runner**: `python -m evaluation.experiment_runner --module <rescue|relief|shelter|priority|explainability|performance|all> --seed 42`
+- **Evaluation API Endpoints**: `/api/evaluation/algorithms`, `/api/evaluation/scenarios`, `/api/evaluation/experiments`, `/api/evaluation/comparisons`, `/api/evaluation/priority-model`, `/api/evaluation/performance`, `/api/evaluation/explainability`
+- **Export Formats**: CSV, JSON, Markdown, and LaTeX via `/api/evaluation/export/{experiment_id}?format=csv|json|markdown|lattex`
+- **Runtime Outputs Ignored**: Experiment results written to `backend/evaluation_results/`, `backend/ml/evaluation_output/`, and root `evaluation_results/` — all git-ignored.
+- **Synthetic-Data Limitation**: All training, scenarios, and evaluations use synthetic/generated data. **Results do not reflect real-world disaster response performance. No statistical significance claim is made.**
+- **Distance Limitation**: Straight-line Haversine distance only — not road-network distance.
+
+See `backend/evaluation/README.md` and `backend/evaluation/EVALUATION_METHODOLOGY.md` for detailed documentation.
+
 ## Running Tests
 
 To run all backend tests:

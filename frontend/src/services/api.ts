@@ -403,5 +403,11 @@ export const api = {
     const res = await fetch(`${API_BASE_URL}/evaluation/explainability`);
     if (!res.ok) throw new Error('Failed to get explainability coverage');
     return res.json();
+  },
+
+  exportExperimentResults: async (experimentId: string, format: 'csv' | 'json' | 'markdown' | 'latex'): Promise<Blob> => {
+    const res = await fetch(`${API_BASE_URL}/evaluation/export/${experimentId}?format=${format}`);
+    if (!res.ok) throw new Error(`Failed to export ${format}`);
+    return res.blob();
   }
 };

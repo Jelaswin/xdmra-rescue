@@ -38,6 +38,8 @@ EXPERIMENTS_DIR.mkdir(exist_ok=True, parents=True)
 EVALUATION_OUTPUT_DIR = Path(__file__).parent.parent.parent / "ml" / "evaluation_output"
 EVALUATION_OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
+_running_experiments: set = set()
+
 
 class ExperimentCreateRequest(BaseModel):
     module: str = Field(..., description="rescue, relief, shelter, priority, explainability, performance, all")
@@ -68,12 +70,14 @@ class ScenarioInfo(BaseModel):
     seed: int
 
 
-def _validate_pathTraversal(path: str) -> bool:
-    dangerous = ["..", "~", ":", "\\", "//", "\\\\"]
+def _validate_path_traversal(path: str) -> bool:
+    dangerous = ["..", "~", ":", "\\", "//", "\\\\", "/"]
     return not any(d in path for d in dangerous)
 
 
 def _get_experiment_path(experiment_id: str) -> Optional[Path]:
+    if not _validate_path_traversal(experiment_id):
+        return None
     exp_dir = EXPERIMENTS_DIR / experiment_id
     if exp_dir.exists() and exp_dir.is_dir():
         return exp_dir
@@ -164,16 +168,27 @@ def create_experiment(req: ExperimentCreateRequest):
     if req.module not in ("rescue", "relief", "shelter", "priority", "explainability", "performance", "all"):
         raise HTTPException(status_code=400, detail=f"Invalid module: {req.module}")
 
+    if req.output_subdir:
+        if not _validate_path_traversal(req.output_subdir):
+            raise HTTPException(status_code=400, detail="Invalid output_subdir: path traversal detected")
+        subdir_key = req.output_subdir
+    else:
+        subdir_key = None
+
+    if subdir_key and subdir_key in _running_experiments:
+        raise HTTPException(status_code=409, detail="Experiment with this output_subdir is already running")
+
     experiment_id = str(uuid.uuid4())[:8]
 
     if req.output_subdir:
-        if not _validate_pathTraversal(req.output_subdir):
-            raise HTTPException(status_code=400, detail="Invalid output_subdir")
         output_dir = EXPERIMENTS_DIR / req.output_subdir
     else:
         output_dir = EXPERIMENTS_DIR / experiment_id
 
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if subdir_key:
+        _running_experiments.add(subdir_key)
 
     start = time.perf_counter()
     try:
@@ -186,7 +201,12 @@ def create_experiment(req: ExperimentCreateRequest):
             algorithms=req.algorithms,
         )
     except Exception as e:
+        if subdir_key:
+            _running_experiments.discard(subdir_key)
         raise HTTPException(status_code=500, detail=f"Experiment failed: {str(e)}")
+
+    if subdir_key:
+        _running_experiments.discard(subdir_key)
 
     duration_ms = (time.perf_counter() - start) * 1000
 

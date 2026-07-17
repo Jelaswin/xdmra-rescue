@@ -27,7 +27,7 @@ backend/evaluation/
 ├── exporters.py             # CSV, JSON, Markdown, LaTeX export
 ├── paper_tables.py           # Formatted comparison tables
 ├── baselines/
-│   ├── rescue_baselines.py  # 5 rescue baseline algorithms
+│   ├── rescue_baselines.py  # 5 rescue baseline algorithms + X-DMRA (6 total)
 │   ├── relief_baselines.py  # 4 relief baseline algorithms
 │   └── shelter_baselines.py # 4 shelter baseline algorithms
 ├── scenarios/
@@ -126,7 +126,10 @@ python -m evaluation.experiment_runner --module all --seed 42 --scenario-limit 1
 | GET | /api/evaluation/priority-model | Get priority model evaluation |
 | GET | /api/evaluation/performance | Get performance benchmark |
 | GET | /api/evaluation/explainability | Get explainability coverage |
-| GET | /api/evaluation/export/{id} | Export experiment results |
+| GET | /api/evaluation/export/{id}?format=csv | Export results as CSV |
+| GET | /api/evaluation/export/{id}?format=json | Export results as JSON |
+| GET | /api/evaluation/export/{id}?format=markdown | Export results as Markdown |
+| GET | /api/evaluation/export/{id}?format=latex | Export results as LaTeX |
 
 ## Export Formats
 

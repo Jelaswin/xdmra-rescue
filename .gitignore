@@ -19,3 +19,4 @@ coverage/
 .vscode/
 backend/evaluation_results/
 backend/ml/evaluation_output/
+/evaluation_results/
