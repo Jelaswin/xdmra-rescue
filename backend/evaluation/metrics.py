@@ -107,135 +107,258 @@ def calculate_workload_fairness_metrics(workloads: List[int]) -> Dict[str, Any]:
 
 
 def calculate_relief_metrics(results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Calculate relief allocation evaluation metrics."""
+    """Calculate relief allocation evaluation metrics.
+
+    Metrics cover ALL scenarios (not only successful ones) to avoid
+    internal inconsistencies between reported fulfilment and shortage.
+
+    Definitions:
+    - allocation_success: positive total allocated (produced a usable plan)
+    - fully_fulfilled: total_shortage == 0
+    - partial_fulfilment: allocated > 0 and shortage > 0
+    - failed: allocated == 0 with positive demand
+    """
     if not results:
         return {}
-    
+
+    total = len(results)
+
+    # Every scenario has fulfilment_pct and shortage from the experiment runner.
+    all_fulfilments = [r.get("fulfilment_pct", 0) for r in results if r.get("fulfilment_pct") is not None]
+    all_shortages = [r.get("shortage", 0) for r in results if r.get("shortage") is not None]
+
+    # Count by fulfilment category (all scenarios, not just successful)
+    fully_fulfilled_count = sum(1 for r in results if r.get("shortage", 0) == 0 and r.get("success", False))
+    partial_fulfilment_count = sum(
+        1 for r in results if r.get("success", False) and r.get("shortage", 0) > 0
+    )
+    failed_count = sum(1 for r in results if not r.get("success", False))
+    allocation_success_count = sum(1 for r in results if r.get("success", False))
+
+    # Macro fulfilment: mean over ALL scenarios
+    macro_fulfilment = statistics.mean(all_fulfilments) if all_fulfilments else 0.0
+
+    # Weighted fulfilment: total allocated / total requested across all scenarios.
+    # When results contain total_requested, use it directly.
+    # Otherwise derive from fulfilment_pct and shortage (inverse of fulfilment formula).
+    total_allocated = 0.0
+    total_requested = 0.0
+    fulfilment_sum_for_weighted = 0.0
+    for r in results:
+        req = r.get("total_requested", 0)
+        fulf = r.get("fulfilment_pct", 0)
+        short = r.get("shortage", 0)
+        if req > 0:
+            total_requested += req
+            total_allocated += req * (fulf / 100.0)
+        elif fulf < 100:
+            derived_req = short / (1 - fulf / 100.0) if fulf < 100 else short
+            total_requested += derived_req
+            total_allocated += derived_req * (fulf / 100.0)
+        else:
+            fulfilment_sum_for_weighted += fulf
+
+    if total_requested > 0:
+        weighted_fulfilment = (total_allocated / total_requested * 100)
+    elif fulfilment_sum_for_weighted > 0:
+        count_100 = sum(1 for r in results if r.get("total_requested", 0) == 0 and r.get("fulfilment_pct", 0) == 100)
+        weighted_fulfilment = fulfilment_sum_for_weighted / len(results) if len(results) > 0 else 0.0
+    else:
+        weighted_fulfilment = macro_fulfilment
+
+    weighted_fulfilment = round(weighted_fulfilment, 4)
+
+    # Shortage stats over all scenarios
+    mean_shortage = statistics.mean(all_shortages) if all_shortages else 0.0
+    total_shortage = sum(all_shortages)
+
     successful = [r for r in results if r.get("success", False)]
-    
-    fulfilment_pcts = [r.get("fulfilment_pct", 0) for r in successful if r.get("fulfilment_pct") is not None]
-    shortages = [r.get("shortage", 0) for r in successful if r.get("shortage") is not None]
     distances = [r.get("distance_km", 0) for r in successful if r.get("distance_km") is not None]
     comp_times = [r.get("computation_time_ms", 0) for r in results if r.get("computation_time_ms") is not None]
     warehouses_used = [len(r.get("warehouses_used", [])) for r in successful]
-    
+
     metrics = {
-        "total_scenarios": len(results),
-        "successful_allocations": len(successful),
-        "success_rate_pct": (len(successful) / len(results) * 100) if results else 0,
+        "total_scenarios": total,
+        "allocation_success_count": allocation_success_count,
+        "fully_fulfilled_count": fully_fulfilled_count,
+        "partial_fulfilment_count": partial_fulfilment_count,
+        "failed_count": failed_count,
+        "success_rate_pct": (allocation_success_count / total * 100) if total else 0,
+        # Macro: mean fulfilment over ALL scenarios
+        "macro_fulfilment_pct": round(macro_fulfilment, 4),
+        # Weighted: total allocated / total requested
+        "weighted_fulfilment_pct": round(weighted_fulfilment, 4),
+        # Shortage
+        "mean_shortage": round(mean_shortage, 4),
+        "total_shortage": int(total_shortage),
+        "max_shortage": max(all_shortages) if all_shortages else 0,
     }
-    
-    if fulfilment_pcts:
-        metrics.update({
-            "mean_fulfilment_pct": statistics.mean(fulfilment_pcts),
-            "median_fulfilment_pct": statistics.median(fulfilment_pcts),
-            "min_fulfilment_pct": min(fulfilment_pcts),
-            "max_fulfilment_pct": max(fulfilment_pcts),
-        })
-        if len(fulfilment_pcts) > 1:
-            metrics["std_fulfilment_pct"] = statistics.stdev(fulfilment_pcts)
-    
-    if shortages:
-        metrics.update({
-            "mean_shortage": statistics.mean(shortages),
-            "median_shortage": statistics.median(shortages),
-            "max_shortage": max(shortages),
-        })
-        if len(shortages) > 1:
-            metrics["std_shortage"] = statistics.stdev(shortages)
-    
+
+    if len(all_fulfilments) > 1:
+        metrics["std_fulfilment_pct"] = round(statistics.stdev(all_fulfilments), 4)
+
+    if len(all_shortages) > 1:
+        metrics["std_shortage"] = round(statistics.stdev(all_shortages), 4)
+
     if distances:
         metrics.update({
-            "mean_distance_km": statistics.mean(distances),
-            "median_distance_km": statistics.median(distances),
+            "mean_distance_km": round(statistics.mean(distances), 4),
+            "median_distance_km": round(statistics.median(distances), 4),
         })
-    
+
     if comp_times:
         metrics.update({
-            "mean_computation_time_ms": statistics.mean(comp_times),
-            "median_computation_time_ms": statistics.median(comp_times),
+            "mean_computation_time_ms": round(statistics.mean(comp_times), 4),
+            "median_computation_time_ms": round(statistics.median(comp_times), 4),
+            "min_computation_time_ms": round(min(comp_times), 4),
+            "max_computation_time_ms": round(max(comp_times), 4),
         })
-    
+
     if warehouses_used:
         metrics.update({
-            "mean_warehouses_used": statistics.mean(warehouses_used),
+            "mean_warehouses_used": round(statistics.mean(warehouses_used), 4),
             "max_warehouses_used": max(warehouses_used),
         })
-    
+
+    stock_violations = sum(r.get("stock_violations", 0) for r in results)
+    metrics["total_stock_violations"] = stock_violations
+
     split_allocations = len([r for r in successful if r.get("split_allocation", False)])
     metrics["split_allocation_count"] = split_allocations
-    metrics["single_source_success_rate_pct"] = ((len(successful) - split_allocations) / len(successful) * 100) if successful else 0
-    
+    metrics["single_source_success_rate_pct"] = (
+        ((allocation_success_count - split_allocations) / allocation_success_count * 100)
+        if allocation_success_count else 0
+    )
+
     return metrics
 
 
 def calculate_shelter_metrics(results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Calculate shelter allocation evaluation metrics."""
+    """Calculate shelter allocation evaluation metrics.
+
+    Metrics cover ALL scenarios (not only successful ones) to avoid
+    internal inconsistencies between reported coverage and uncovered.
+
+    Definitions:
+    - allocation_success: positive allocated population (produced a usable plan)
+    - fully_covered: uncovered == 0 and allocation_success
+    - partially_covered: uncovered > 0 and allocation_success
+    - failed: no allocation with positive demand
+    """
     if not results:
         return {}
-    
+
+    total = len(results)
+
+    all_coverages = [r.get("population_coverage_pct", 0) for r in results if r.get("population_coverage_pct") is not None]
+    all_uncovered = [r.get("uncovered_people", 0) for r in results if r.get("uncovered_people") is not None]
+
+    # Macro coverage: mean over ALL scenarios
+    macro_coverage = statistics.mean(all_coverages) if all_coverages else 0.0
+
+    # Weighted coverage: total allocated / total displaced
+    total_displaced = 0.0
+    total_allocated = 0.0
+    for r in results:
+        disp = r.get("total_displaced_people", 0)
+        alloc = r.get("total_allocated_population", 0)
+        if disp > 0:
+            total_displaced += disp
+            total_allocated += alloc
+        elif not r.get("success", False):
+            total_displaced += r.get("uncovered_people", 0)
+
+    weighted_coverage = (total_allocated / total_displaced * 100) if total_displaced > 0 else 0.0
+
+    allocation_success_count = sum(1 for r in results if r.get("success", False))
+    fully_covered_count = sum(1 for r in results if r.get("success", False) and r.get("uncovered_people", 0) == 0)
+    partial_covered_count = sum(
+        1 for r in results if r.get("success", False) and r.get("uncovered_people", 0) > 0
+    )
+    failed_count = sum(1 for r in results if not r.get("success", False))
+
+    mean_uncovered = statistics.mean(all_uncovered) if all_uncovered else 0.0
+    total_uncovered = sum(all_uncovered)
+
     successful = [r for r in results if r.get("success", False)]
-    
-    coverage_pcts = [r.get("population_coverage_pct", 0) for r in successful if r.get("population_coverage_pct") is not None]
-    uncovered = [r.get("uncovered_people", 0) for r in successful if r.get("uncovered_people") is not None]
     distances = [r.get("distance_km", 0) for r in successful if r.get("distance_km") is not None]
     comp_times = [r.get("computation_time_ms", 0) for r in results if r.get("computation_time_ms") is not None]
-    requirement_matches = [r.get("requirement_match_pct", 0) for r in successful if r.get("requirement_match_pct") is not None]
     shelters_used = [len(r.get("shelters_used", [])) for r in successful]
-    
+
+    # Medical requirement: only over scenarios that require it
+    med_required = [r for r in results if r.get("total_displaced_people", 0) > 0 and
+                    r.get("population_coverage_pct", 0) >= 0]
+    med_denom = sum(1 for r in results if r.get("total_displaced_people", 0) > 0)
+    med_sat_count = sum(1 for r in results if r.get("medical_requirement_satisfied", False))
+    med_match_pct = (med_sat_count / med_denom * 100) if med_denom > 0 else None
+
+    # Accessibility requirement: only over scenarios that require it
+    acc_denom = med_denom
+    acc_sat_count = sum(1 for r in results if r.get("accessibility_requirement_satisfied", False))
+    acc_match_pct = (acc_sat_count / acc_denom * 100) if acc_denom > 0 else None
+
     metrics = {
-        "total_scenarios": len(results),
-        "successful_allocations": len(successful),
-        "success_rate_pct": (len(successful) / len(results) * 100) if results else 0,
+        "total_scenarios": total,
+        "allocation_success_count": allocation_success_count,
+        "fully_covered_count": fully_covered_count,
+        "partial_covered_count": partial_covered_count,
+        "failed_count": failed_count,
+        "success_rate_pct": (allocation_success_count / total * 100) if total else 0,
+        # Macro: mean coverage over ALL scenarios
+        "macro_population_coverage_pct": round(macro_coverage, 4),
+        # Weighted: total allocated / total displaced
+        "weighted_population_coverage_pct": round(weighted_coverage, 4),
+        # Uncovered
+        "mean_uncovered_people": round(mean_uncovered, 4),
+        "total_uncovered_people": int(total_uncovered),
+        "max_uncovered_people": max(all_uncovered) if all_uncovered else 0,
     }
-    
-    if coverage_pcts:
-        metrics.update({
-            "mean_population_coverage_pct": statistics.mean(coverage_pcts),
-            "median_population_coverage_pct": statistics.median(coverage_pcts),
-            "min_population_coverage_pct": min(coverage_pcts),
-            "max_population_coverage_pct": max(coverage_pcts),
-        })
-        if len(coverage_pcts) > 1:
-            metrics["std_population_coverage_pct"] = statistics.stdev(coverage_pcts)
-    
-    if uncovered:
-        metrics.update({
-            "mean_uncovered_people": statistics.mean(uncovered),
-            "median_uncovered_people": statistics.median(uncovered),
-            "max_uncovered_people": max(uncovered),
-        })
-        if len(uncovered) > 1:
-            metrics["std_uncovered_people"] = statistics.stdev(uncovered)
-    
-    overcrowding_violations = len([r for r in successful if r.get("overcrowding_violations", 0) > 0])
+
+    if len(all_coverages) > 1:
+        metrics["std_population_coverage_pct"] = round(statistics.stdev(all_coverages), 4)
+
+    if len(all_uncovered) > 1:
+        metrics["std_uncovered_people"] = round(statistics.stdev(all_uncovered), 4)
+
+    critical_cases = sum(1 for r in successful if r.get("overcrowding_risk_level") == "critical")
+    metrics["critical_overcrowding_cases"] = critical_cases
+
+    overcrowding_violations = sum(r.get("overcrowding_violations", 0) for r in successful)
     metrics["overcrowding_violation_count"] = overcrowding_violations
-    metrics["overcrowding_violation_rate_pct"] = (overcrowding_violations / len(successful) * 100) if successful else 0
-    
+    metrics["overcrowding_violation_rate_pct"] = (
+        (overcrowding_violations / allocation_success_count * 100) if allocation_success_count else 0
+    )
+
     if distances:
         metrics.update({
-            "mean_distance_km": statistics.mean(distances),
-            "median_distance_km": statistics.median(distances),
+            "mean_distance_km": round(statistics.mean(distances), 4),
+            "median_distance_km": round(statistics.median(distances), 4),
         })
-    
+
     if comp_times:
         metrics.update({
-            "mean_computation_time_ms": statistics.mean(comp_times),
-            "median_computation_time_ms": statistics.median(comp_times),
+            "mean_computation_time_ms": round(statistics.mean(comp_times), 4),
+            "median_computation_time_ms": round(statistics.median(comp_times), 4),
+            "min_computation_time_ms": round(min(comp_times), 4),
+            "max_computation_time_ms": round(max(comp_times), 4),
         })
-    
-    if requirement_matches:
-        metrics.update({
-            "mean_requirement_match_pct": statistics.mean(requirement_matches),
-            "median_requirement_match_pct": statistics.median(requirement_matches),
-        })
-    
+
     if shelters_used:
         metrics.update({
-            "mean_shelters_used": statistics.mean(shelters_used),
+            "mean_shelters_used": round(statistics.mean(shelters_used), 4),
             "max_shelters_used": max(shelters_used),
         })
-    
+
+    if med_match_pct is not None:
+        metrics["medical_requirement_match_pct"] = round(med_match_pct, 4)
+    else:
+        metrics["medical_requirement_match_pct"] = None
+
+    if acc_match_pct is not None:
+        metrics["accessibility_requirement_match_pct"] = round(acc_match_pct, 4)
+    else:
+        metrics["accessibility_requirement_match_pct"] = None
+
     return metrics
 
 

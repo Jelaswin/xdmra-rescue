@@ -9,6 +9,13 @@ from typing import List, Dict, Any
 from ..baselines.relief_baselines import ReliefScenario
 
 
+def _std_vehicles():
+    return [
+        {"id": 1, "capacity_units": 500, "availability_status": "available"},
+        {"id": 2, "capacity_units": 500, "availability_status": "available"},
+    ]
+
+
 def get_relief_scenarios() -> List[ReliefScenario]:
     """Return all deterministic relief evaluation scenarios."""
     return [
@@ -21,8 +28,8 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=10.9925,
             longitude=76.9600,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 500, "drinking_water_litre": 1000, "medical_kit": 50, "blanket": 200}},
-                {"id": 2, "name": "GH Medical Depot", "latitude": 11.0016, "longitude": 76.9723, "operating_status": "active", "inventory": {"medical_kit": 100}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 500, "drinking_water_litre": 1000, "medical_kit": 50, "blanket": 200}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
+                {"id": 2, "name": "GH Medical Depot", "latitude": 11.0016, "longitude": 76.9723, "operating_status": "active", "inventory": {"medical_kit": 100}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 500, "vehicles": [{"id": 3, "capacity_units": 200, "availability_status": "available"}]},
             ]
         ),
         
@@ -35,8 +42,8 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=10.9950,
             longitude=76.9750,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 200, "drinking_water_litre": 500, "temporary_tent": 5}},
-                {"id": 3, "name": "NGO Supply Centre", "latitude": 11.0270, "longitude": 77.0062, "operating_status": "active", "inventory": {"food_packet": 300, "drinking_water_litre": 500, "temporary_tent": 15}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 200, "drinking_water_litre": 500, "temporary_tent": 5}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
+                {"id": 3, "name": "NGO Supply Centre", "latitude": 11.0270, "longitude": 77.0062, "operating_status": "active", "inventory": {"food_packet": 300, "drinking_water_litre": 500, "temporary_tent": 15}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
             ]
         ),
         
@@ -49,8 +56,8 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=11.0016,
             longitude=76.9723,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"medical_kit": 20}},
-                {"id": 2, "name": "GH Medical Depot", "latitude": 11.0016, "longitude": 76.9723, "operating_status": "active", "inventory": {"medical_kit": 150}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"medical_kit": 20}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
+                {"id": 2, "name": "GH Medical Depot", "latitude": 11.0016, "longitude": 76.9723, "operating_status": "active", "inventory": {"medical_kit": 150}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 500, "vehicles": [{"id": 3, "capacity_units": 200, "availability_status": "available"}]},
             ]
         ),
         
@@ -63,7 +70,7 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=10.9925,
             longitude=76.9600,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 500, "blanket": 200}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 500, "blanket": 200}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
             ]
         ),
         
@@ -76,7 +83,7 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=11.0270,
             longitude=77.0062,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 1000}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 1000}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
             ]
         ),
         
@@ -89,8 +96,8 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=10.9930,
             longitude=76.8290,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"temporary_tent": 10, "blanket": 30}},
-                {"id": 4, "name": "Rural Emergency Stock Point", "latitude": 10.9930, "longitude": 76.8290, "operating_status": "active", "inventory": {"temporary_tent": 5, "blanket": 20}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"temporary_tent": 10, "blanket": 30}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
+                {"id": 4, "name": "Rural Emergency Stock Point", "latitude": 10.9930, "longitude": 76.8290, "operating_status": "active", "inventory": {"temporary_tent": 5, "blanket": 20}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 500, "vehicles": [{"id": 5, "capacity_units": 200, "availability_status": "available"}]},
             ]
         ),
         
@@ -103,7 +110,7 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=11.0270,
             longitude=77.0062,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 500}, "current_dispatch_workload": 800, "maximum_dispatch_capacity": 1000},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 500}, "current_dispatch_workload": 800, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
             ]
         ),
         
@@ -116,20 +123,20 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=11.0016,
             longitude=76.9723,
             warehouses=[
-                {"id": 2, "name": "GH Medical Depot", "latitude": 11.0016, "longitude": 76.9723, "operating_status": "active", "inventory": {"medical_kit": 100}},
+                {"id": 2, "name": "GH Medical Depot", "latitude": 11.0016, "longitude": 76.9723, "operating_status": "active", "inventory": {"medical_kit": 100}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 500, "vehicles": [{"id": 3, "capacity_units": 200, "availability_status": "available"}]},
             ]
         ),
         
-        # 9. No complete allocation possible
+        # 9. No complete allocation possible (using supported item types)
         ReliefScenario(
             scenario_id="relief_009",
             incident_id=9,
-            items={"hazmat_suit": 20, "decontamination_unit": 5},
+            items={"emergency_light": 20, "hygiene_kit": 10},
             total_people=50,
             latitude=11.0270,
             longitude=77.0062,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"hazmat_suit": 5}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"emergency_light": 5, "hygiene_kit": 2}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
             ]
         ),
         
@@ -142,7 +149,7 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=10.9950,
             longitude=76.9750,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 200, "drinking_water_litre": 300}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 200, "drinking_water_litre": 300}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
             ]
         ),
         
@@ -155,7 +162,7 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=11.0168,
             longitude=76.9558,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 5000, "drinking_water_litre": 10000, "blanket": 2000}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 5000, "drinking_water_litre": 10000, "blanket": 2000}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 10000, "vehicles": _std_vehicles()},
             ]
         ),
         
@@ -168,7 +175,7 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=11.0094,
             longitude=76.9472,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 500}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 500}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
             ]
         ),
         
@@ -181,8 +188,8 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=11.0016,
             longitude=76.9723,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"medical_kit": 50}},
-                {"id": 2, "name": "GH Medical Depot", "latitude": 11.0016, "longitude": 76.9723, "operating_status": "limited", "inventory": {"medical_kit": 100}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"medical_kit": 50}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
+                {"id": 2, "name": "GH Medical Depot", "latitude": 11.0016, "longitude": 76.9723, "operating_status": "limited", "inventory": {"medical_kit": 100}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 500, "vehicles": [{"id": 3, "capacity_units": 200, "availability_status": "available"}]},
             ]
         ),
         
@@ -195,7 +202,7 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=11.0270,
             longitude=77.0062,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"baby_supply_kit": 0}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"baby_supply_kit": 0}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
             ]
         ),
         
@@ -208,8 +215,8 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=11.0168,
             longitude=76.9558,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 500, "hygiene_kit": 100}},
-                {"id": 3, "name": "NGO Supply Centre", "latitude": 11.0270, "longitude": 77.0062, "operating_status": "active", "inventory": {"baby_supply_kit": 50}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 500, "hygiene_kit": 100}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
+                {"id": 3, "name": "NGO Supply Centre", "latitude": 11.0270, "longitude": 77.0062, "operating_status": "active", "inventory": {"baby_supply_kit": 50}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 500, "vehicles": [{"id": 4, "capacity_units": 200, "availability_status": "available"}]},
             ]
         ),
         
@@ -222,7 +229,7 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=11.0016,
             longitude=76.9723,
             warehouses=[
-                {"id": 2, "name": "GH Medical Depot", "latitude": 11.0016, "longitude": 76.9723, "operating_status": "active", "inventory": {"medical_kit": 2000, "emergency_light": 300}},
+                {"id": 2, "name": "GH Medical Depot", "latitude": 11.0016, "longitude": 76.9723, "operating_status": "active", "inventory": {"medical_kit": 2000, "emergency_light": 300}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 500, "vehicles": [{"id": 3, "capacity_units": 200, "availability_status": "available"}]},
             ]
         ),
         
@@ -235,7 +242,7 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=11.0289,
             longitude=77.0270,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"temporary_tent": 100, "blanket": 2000, "emergency_light": 300}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"temporary_tent": 100, "blanket": 2000, "emergency_light": 300}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
             ]
         ),
         
@@ -248,8 +255,8 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=10.9950,
             longitude=76.9750,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 150}},
-                {"id": 3, "name": "NGO Supply Centre", "latitude": 11.0270, "longitude": 77.0062, "operating_status": "active", "inventory": {"food_packet": 200}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "active", "inventory": {"food_packet": 150}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
+                {"id": 3, "name": "NGO Supply Centre", "latitude": 11.0270, "longitude": 77.0062, "operating_status": "active", "inventory": {"food_packet": 200}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
             ]
         ),
         
@@ -262,7 +269,7 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=10.9930,
             longitude=76.8290,
             warehouses=[
-                {"id": 4, "name": "Rural Emergency Stock Point", "latitude": 10.9930, "longitude": 76.8290, "operating_status": "limited", "inventory": {"blanket": 100}},
+                {"id": 4, "name": "Rural Emergency Stock Point", "latitude": 10.9930, "longitude": 76.8290, "operating_status": "limited", "inventory": {"blanket": 100}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 500, "vehicles": [{"id": 5, "capacity_units": 200, "availability_status": "available"}]},
             ]
         ),
         
@@ -275,7 +282,7 @@ def get_relief_scenarios() -> List[ReliefScenario]:
             latitude=11.0270,
             longitude=77.0062,
             warehouses=[
-                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "closed", "inventory": {"food_packet": 500}},
+                {"id": 1, "name": "District Relief Warehouse", "latitude": 11.0168, "longitude": 76.9558, "operating_status": "closed", "inventory": {"food_packet": 500}, "current_dispatch_workload": 0, "maximum_dispatch_capacity": 1000, "vehicles": _std_vehicles()},
             ]
         ),
     ]

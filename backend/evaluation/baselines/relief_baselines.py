@@ -36,6 +36,7 @@ class ReliefBaselineResult:
     stock_violations: int
     split_allocation: bool
     computation_time_ms: float
+    total_requested: int
     failure_reason: Optional[str] = None
 
 
@@ -54,7 +55,11 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
 
 
 class FirstStockedWarehouseBaseline:
-    """Select the first warehouse that has stock for all items."""
+    """Select the first warehouse that has complete stock for ALL requested items.
+    
+    A warehouse is selected only when it can supply ALL items from its own inventory.
+    Partial fulfilment from multiple warehouses is NOT considered single-source success.
+    """
     
     name = "first_stocked_warehouse"
     
@@ -66,46 +71,69 @@ class FirstStockedWarehouseBaseline:
             if wh.get("operating_status") not in ["active", "limited"]:
                 continue
             
+            wh_inventory = wh.get("inventory", {})
+            
             all_items_available = True
+            per_item_supplies = {}
+            total_supplied = 0
+            total_requested = 0
+            has_any_stock = False
+            
             for item_type, qty_needed in scenario.items.items():
-                inventory = wh.get("inventory", {})
-                available = inventory.get(item_type, 0)
+                total_requested += qty_needed
+                available = wh_inventory.get(item_type, 0)
+                if available > 0:
+                    has_any_stock = True
+                supplied = min(qty_needed, available)
+                per_item_supplies[item_type] = supplied
+                total_supplied += supplied
                 if available < qty_needed:
                     all_items_available = False
-                    break
             
-            if all_items_available:
+            if not has_any_stock:
+                continue
+            
+            if all_items_available and total_supplied > 0:
                 distance = haversine_distance(scenario.latitude, scenario.longitude, wh["latitude"], wh["longitude"])
+                shortage = max(0, total_requested - total_supplied)
+                fulfilment = (total_supplied / total_requested * 100) if total_requested > 0 else 0
                 return ReliefBaselineResult(
                     algorithm=self.name,
                     scenario_id=scenario.scenario_id,
                     success=True,
                     warehouses_used=[wh["id"]],
-                    fulfilment_pct=100.0,
-                    shortage=0,
+                    fulfilment_pct=fulfilment,
+                    shortage=shortage,
                     distance_km=distance,
                     stock_violations=0,
                     split_allocation=False,
-                    computation_time_ms=(time.perf_counter() - start_time) * 1000
+                    computation_time_ms=(time.perf_counter() - start_time) * 1000,
+                    total_requested=total_requested
                 )
-        
+
+        total_demand = sum(scenario.items.values())
         return ReliefBaselineResult(
             algorithm=self.name,
             scenario_id=scenario.scenario_id,
             success=False,
             warehouses_used=[],
             fulfilment_pct=0.0,
-            shortage=sum(scenario.items.values()),
+            shortage=total_demand,
             distance_km=0.0,
             stock_violations=0,
             split_allocation=False,
             computation_time_ms=(time.perf_counter() - start_time) * 1000,
-            failure_reason="No single warehouse has complete stock"
+            failure_reason="No single warehouse has complete stock for all items",
+            total_requested=total_demand
         )
 
 
 class NearestStockedWarehouseBaseline:
-    """Select the nearest warehouse that has stock."""
+    """Select the nearest warehouse that has stock.
+    
+    Uses per-item min(requested, available) to compute total supplied.
+    Excess of one item CANNOT compensate for shortage of another.
+    """
     
     name = "nearest_stocked_warehouse"
     
@@ -132,66 +160,88 @@ class NearestStockedWarehouseBaseline:
                 stock_violations=0,
                 split_allocation=False,
                 computation_time_ms=(time.perf_counter() - start_time) * 1000,
-                failure_reason="No eligible warehouses"
+                failure_reason="No eligible warehouses",
+                total_requested=sum(scenario.items.values())
             )
-        
+
         eligible.sort(key=lambda x: x[1])
-        
         selected_wh, distance = eligible[0]
-        
-        total_needed = sum(scenario.items.values())
-        total_available = sum(selected_wh.get("inventory", {}).get(item, 0) for item in scenario.items)
-        
-        if total_available >= total_needed:
-            return ReliefBaselineResult(
-                algorithm=self.name,
-                scenario_id=scenario.scenario_id,
-                success=True,
-                warehouses_used=[selected_wh["id"]],
-                fulfilment_pct=100.0,
-                shortage=0,
-                distance_km=distance,
-                stock_violations=0,
-                split_allocation=False,
-                computation_time_ms=(time.perf_counter() - start_time) * 1000
-            )
-        else:
-            fulfilment = (total_available / total_needed * 100) if total_needed > 0 else 0
+        wh_inventory = selected_wh.get("inventory", {})
+
+        total_requested = sum(scenario.items.values())
+        total_supplied = 0
+        for item_type, qty_needed in scenario.items.items():
+            available = wh_inventory.get(item_type, 0)
+            total_supplied += min(qty_needed, available)
+
+        if total_supplied > 0:
+            fulfilment = (total_supplied / total_requested * 100) if total_requested > 0 else 0
+            shortage = max(0, total_requested - total_supplied)
             return ReliefBaselineResult(
                 algorithm=self.name,
                 scenario_id=scenario.scenario_id,
                 success=True,
                 warehouses_used=[selected_wh["id"]],
                 fulfilment_pct=fulfilment,
-                shortage=total_needed - total_available,
+                shortage=shortage,
                 distance_km=distance,
                 stock_violations=0,
                 split_allocation=False,
-                computation_time_ms=(time.perf_counter() - start_time) * 1000
+                computation_time_ms=(time.perf_counter() - start_time) * 1000,
+                total_requested=total_requested
+            )
+        else:
+            return ReliefBaselineResult(
+                algorithm=self.name,
+                scenario_id=scenario.scenario_id,
+                success=False,
+                warehouses_used=[],
+                fulfilment_pct=0.0,
+                shortage=total_requested,
+                distance_km=distance,
+                stock_violations=0,
+                split_allocation=False,
+                computation_time_ms=(time.perf_counter() - start_time) * 1000,
+                failure_reason="No items available at nearest warehouse",
+                total_requested=total_requested
             )
 
 
 class HighestStockCoverageBaseline:
-    """Select warehouse with highest stock coverage percentage."""
-    
+    """Select warehouse with highest per-item coverage percentage.
+
+    Per-item coverage = min(requested[item], available[item])
+    Total supplied = sum of per-item coverage
+    Fulfilment = total_supplied / total_requested (capped at 100% per warehouse)
+
+    Excess of one item CANNOT compensate for shortage of another.
+    """
+
     name = "highest_stock_coverage"
-    
+
     def select(self, scenario: ReliefScenario) -> ReliefBaselineResult:
         import time
         start_time = time.perf_counter()
-        
+
+        total_requested = sum(scenario.items.values())
+
         candidates = []
         for wh in scenario.warehouses:
             if wh.get("operating_status") not in ["active", "limited"]:
                 continue
-            
-            total_needed = sum(scenario.items.values())
-            total_available = sum(wh.get("inventory", {}).get(item, 0) for item in scenario.items)
-            coverage = (total_available / total_needed * 100) if total_needed > 0 else 0
-            
+
+            wh_inventory = wh.get("inventory", {})
+            total_supplied = 0
+
+            for item_type, qty_needed in scenario.items.items():
+                available = wh_inventory.get(item_type, 0)
+                supplied = min(qty_needed, available)
+                total_supplied += supplied
+
+            coverage_pct = (total_supplied / total_requested * 100) if total_requested > 0 else 0
             distance = haversine_distance(scenario.latitude, scenario.longitude, wh["latitude"], wh["longitude"])
-            candidates.append((wh, coverage, distance))
-        
+            candidates.append((wh, total_supplied, coverage_pct, distance))
+
         if not candidates:
             return ReliefBaselineResult(
                 algorithm=self.name,
@@ -199,22 +249,21 @@ class HighestStockCoverageBaseline:
                 success=False,
                 warehouses_used=[],
                 fulfilment_pct=0.0,
-                shortage=sum(scenario.items.values()),
+                shortage=total_requested,
                 distance_km=0.0,
                 stock_violations=0,
                 split_allocation=False,
                 computation_time_ms=(time.perf_counter() - start_time) * 1000,
-                failure_reason="No eligible warehouses"
+                failure_reason="No eligible warehouses",
+                total_requested=total_requested
             )
-        
-        candidates.sort(key=lambda x: (-x[1], x[2]))
-        selected_wh, coverage, distance = candidates[0]
-        
-        total_needed = sum(scenario.items.values())
-        total_available = sum(selected_wh.get("inventory", {}).get(item, 0) for item in scenario.items)
-        fulfilment = coverage
-        shortage = max(0, total_needed - total_available)
-        
+
+        candidates.sort(key=lambda x: (-x[2], x[3]))
+        selected_wh, total_supplied, coverage_pct, distance = candidates[0]
+
+        fulfilment = coverage_pct
+        shortage = max(0, total_requested - total_supplied)
+
         return ReliefBaselineResult(
             algorithm=self.name,
             scenario_id=scenario.scenario_id,
@@ -225,12 +274,17 @@ class HighestStockCoverageBaseline:
             distance_km=distance,
             stock_violations=0,
             split_allocation=False,
-            computation_time_ms=(time.perf_counter() - start_time) * 1000
+            computation_time_ms=(time.perf_counter() - start_time) * 1000,
+            total_requested=total_requested
         )
 
 
 class SingleWarehouseOnlyBaseline:
-    """Force single warehouse allocation even if it means shortages."""
+    """Force single warehouse allocation even if it means shortages.
+    
+    Uses per-item min(requested, available) - CANNOT exceed per-item demand.
+    Excess of one item CANNOT compensate for shortage of another.
+    """
     
     name = "single_warehouse_only"
     
@@ -242,10 +296,14 @@ class SingleWarehouseOnlyBaseline:
         for wh in scenario.warehouses:
             if wh.get("operating_status") not in ["active", "limited"]:
                 continue
-            total_available = sum(wh.get("inventory", {}).get(item, 0) for item in scenario.items)
-            if total_available > 0:
+            wh_inventory = wh.get("inventory", {})
+            total_supplied = 0
+            for item_type, qty_needed in scenario.items.items():
+                available = wh_inventory.get(item_type, 0)
+                total_supplied += min(qty_needed, available)
+            if total_supplied > 0:
                 distance = haversine_distance(scenario.latitude, scenario.longitude, wh["latitude"], wh["longitude"])
-                candidates.append((wh, total_available, distance))
+                candidates.append((wh, total_supplied, distance))
         
         if not candidates:
             return ReliefBaselineResult(
@@ -259,16 +317,17 @@ class SingleWarehouseOnlyBaseline:
                 stock_violations=0,
                 split_allocation=False,
                 computation_time_ms=(time.perf_counter() - start_time) * 1000,
-                failure_reason="No warehouses with inventory"
+                failure_reason="No warehouses with inventory",
+                total_requested=sum(scenario.items.values())
             )
-        
+
         candidates.sort(key=lambda x: (-x[1], x[2]))
-        selected_wh, total_available, distance = candidates[0]
-        
-        total_needed = sum(scenario.items.values())
-        fulfilment = min(100, (total_available / total_needed * 100)) if total_needed > 0 else 0
-        shortage = max(0, total_needed - total_available)
-        
+        selected_wh, total_supplied, distance = candidates[0]
+
+        total_requested = sum(scenario.items.values())
+        fulfilment = min(100, (total_supplied / total_requested * 100)) if total_requested > 0 else 0
+        shortage = max(0, total_requested - total_supplied)
+
         return ReliefBaselineResult(
             algorithm=self.name,
             scenario_id=scenario.scenario_id,
@@ -279,7 +338,8 @@ class SingleWarehouseOnlyBaseline:
             distance_km=distance,
             stock_violations=0,
             split_allocation=False,
-            computation_time_ms=(time.perf_counter() - start_time) * 1000
+            computation_time_ms=(time.perf_counter() - start_time) * 1000,
+            total_requested=total_requested
         )
 
 

@@ -317,9 +317,15 @@ class TestReliefMetrics:
              "stock_violations": 0, "split_allocation": True},
         ]
         metrics = calculate_relief_metrics(results)
+        assert metrics["allocation_success_count"] == 2
         assert metrics["success_rate_pct"] == 100.0
-        assert "mean_fulfilment_pct" in metrics
+        assert "macro_fulfilment_pct" in metrics
+        assert "weighted_fulfilment_pct" in metrics
+        assert metrics["fully_fulfilled_count"] == 1
+        assert metrics["partial_fulfilment_count"] == 1
         assert "mean_shortage" in metrics
+        assert "total_shortage" in metrics
+        assert "total_stock_violations" in metrics
 
 
 class TestExperimentRunner:

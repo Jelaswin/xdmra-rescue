@@ -24,19 +24,50 @@ The **X-DMRA Explainable baseline** is not a separate algorithm but refers to X-
 
 ### Relief Allocation
 
-Relief baselines operate on warehouse inventory and demand requirements:
-1. Filter warehouses by operating status
-2. Check inventory availability against item requirements
-3. Apply algorithm-specific selection logic
-4. Never allocate more than available stock
+All baselines use **per-item capped allocation**:
+```
+allocated[item] = min(requested[item], available_stock[item])
+```
+
+Excess of one item NEVER compensates for shortage of another.
+
+**Fulfilment** (per scenario):
+```
+fulfilment_pct = 100 × sum(allocated[item]) / sum(requested[item])
+```
+
+**Macro fulfilment**: mean of scenario fulfilment_pct over ALL scenarios
+**Weighted fulfilment**: 100 × sum(allocated) / sum(requested) across all scenarios
+
+**Shortage** (per scenario):
+```
+shortage = sum(max(0, requested[item] - allocated[item]))
+```
+
+**Stock violation**: only when allocated[item] > available_stock[item] (always zero in correct implementations).
+
+**X-DMRA relief** uses production scoring with greedy split allocation across ranked warehouses.
 
 ### Shelter Allocation
 
-Shelter baselines operate on shelter capacity and displaced population:
-1. Filter shelters by operating status and available capacity
-2. Apply algorithm-specific selection
-3. Never admit more people than available capacity allows
-4. Track uncovered population when total capacity is insufficient
+Shelter baselines use **capacity-capped allocation**:
+```
+allocated = min(displaced_people, available_capacity)
+```
+
+**Coverage** (per scenario):
+```
+coverage_pct = 100 × allocated / displaced
+```
+
+**Macro coverage**: mean of scenario coverage_pct over ALL scenarios
+**Weighted coverage**: 100 × sum(allocated) / sum(displaced) across all scenarios
+
+**Critical overcrowding**: projected occupancy >= 95% (fixed threshold).
+
+**Medical/accessibility requirement match**: percentage only over scenarios that require the feature (not all scenarios).
+
+**X-DMRA shelter** uses production scoring with greedy split allocation across ranked shelters.
 
 ## Scenario Design
 
@@ -114,17 +145,26 @@ where w_i is the workload of team i and n is the number of teams.
 
 ## Priority Model Evaluation
 
-The priority model is evaluated on the synthetic training dataset without retraining.
+The priority model is evaluated on the **held-out synthetic test set** (549 samples, 20% of 2744 total, `train_test_split(random_state=42, test_size=0.2, stratify=y)`). The model is **not retrained**. Training artifacts are not modified.
 
 ### Metrics
-- Accuracy, macro precision, macro recall, macro F1, weighted F1
+- Accuracy: percentage of correct predictions on test set
+- Macro precision/recall/F1: unweighted mean of per-class values
+- Weighted F1: support-weighted mean of per-class F1
 - Per-class precision, recall, F1, and support
-- Confusion matrix (class × predicted)
-- Training accuracy vs. evaluation accuracy (overfitting indicator)
+- Confusion matrix (true class × predicted class)
+- Training accuracy vs. evaluation accuracy gap (flagged as potential overfitting)
+- Prediction latency (mean, median, min, max, P95) measured per-sample after warm-up
+
+### Latency Measurement
+- Model is loaded once and cached globally
+- One warm-up prediction is discarded before timing
+- Each subsequent prediction is timed individually with `time.perf_counter()`
+- Batch effects are excluded; per-sample timing captures single-incident latency
 
 ### Rule-versus-ML Agreement
 A simple rule-based priority is computed for each incident:
-- Score = affected*1 + injured*3 + trapped*5
+- Score = affected*1 + injured*3 + trapped*5 + severity_weight
 - Threshold-based classification into low/medium/high/critical
 
 Agreement rate and disagreement count are reported separately.
