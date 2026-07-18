@@ -535,8 +535,73 @@ class OperationalAlert(Base):
     resource_id = Column(Integer, nullable=True)
     recommended_action = Column(String, nullable=True)
     status = Column(String, default=AlertStatus.active, index=True)
-    
+
     acknowledged_at = Column(DateTime, nullable=True)
     resolved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class UserRole(str, enum.Enum):
+    admin = "admin"
+    command_officer = "command_officer"
+    rescue_officer = "rescue_officer"
+    relief_officer = "relief_officer"
+    shelter_officer = "shelter_officer"
+    viewer = "viewer"
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    full_name = Column(String, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    role = Column(Enum(UserRole), nullable=False, default=UserRole.viewer)
+    is_active = Column(Integer, default=1)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+    last_login_at = Column(DateTime, nullable=True)
+
+
+class RevokedToken(Base):
+    __tablename__ = "revoked_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token_jti = Column(String, unique=True, index=True, nullable=False)
+    revoked_at = Column(DateTime, default=utcnow)
+    expires_at = Column(DateTime, nullable=False)
+
+
+class AuditAction(str, enum.Enum):
+    login_success = "login_success"
+    login_failure = "login_failure"
+    logout = "logout"
+    user_created = "user_created"
+    user_activated = "user_activated"
+    user_deactivated = "user_deactivated"
+    incident_created = "incident_created"
+    incident_updated = "incident_updated"
+    allocation_executed = "allocation_executed"
+    reallocation_executed = "reallocation_executed"
+    manual_override = "manual_override"
+    relief_inventory_mutated = "relief_inventory_mutated"
+    shelter_mutated = "shelter_mutated"
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True)
+    user_email = Column(String, nullable=True)
+    user_role = Column(String, nullable=True)
+    action = Column(String, nullable=False, index=True)
+    resource_type = Column(String, nullable=True)
+    resource_id = Column(Integer, nullable=True)
+    request_method = Column(String, nullable=True)
+    request_path = Column(String, nullable=True)
+    success = Column(Integer, default=1)
+    details = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow)

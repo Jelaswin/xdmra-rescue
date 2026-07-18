@@ -9,6 +9,7 @@ env/
 *.db-journal
 *.db-wal
 *.db-shm
+test_*.db
 *.bak
 dist/
 build/

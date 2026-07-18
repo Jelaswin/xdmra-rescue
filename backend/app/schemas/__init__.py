@@ -819,3 +819,77 @@ class CommandMapOverview(BaseModel):
     warehouses: List[Dict[str, Any]] = []
     shelters: List[Dict[str, Any]] = []
     blocked_routes: List[Dict[str, Any]] = []
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: "UserResponse"
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class UserResponse(BaseModel):
+    id: int
+    full_name: str
+    email: str
+    role: str
+    is_active: bool
+    created_at: datetime
+    last_login_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserCreate(BaseModel):
+    full_name: str = Field(..., min_length=1)
+    email: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=8)
+    role: str = Field(default="viewer")
+
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class PaginatedUsersResponse(BaseModel):
+    total: int
+    page: int
+    per_page: int
+    items: List[UserResponse]
+
+
+class AuditLogResponse(BaseModel):
+    id: int
+    user_id: Optional[int] = None
+    user_email: Optional[str] = None
+    user_role: Optional[str] = None
+    action: str
+    resource_type: Optional[str] = None
+    resource_id: Optional[int] = None
+    request_method: Optional[str] = None
+    request_path: Optional[str] = None
+    success: bool
+    details: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PaginatedAuditLogsResponse(BaseModel):
+    total: int
+    page: int
+    per_page: int
+    items: List[AuditLogResponse]
