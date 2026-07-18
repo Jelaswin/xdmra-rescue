@@ -1,0 +1,25 @@
+services:
+  - name: xdmra-backend
+    rootDir: backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    branch: master
+    autoDeploy: true
+    plan: free
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "7"
+      - key: MIN_PASSWORD_LENGTH
+        value: "8"
+      - key: DATABASE_URL
+      - key: JWT_SECRET
+      - key: FRONTEND_ORIGIN
+      - key: ALLOWED_ORIGINS

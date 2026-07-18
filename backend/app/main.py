@@ -18,6 +18,9 @@ app = FastAPI(title="X-DMRA Rescue API")
 frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
 allowed_origins = os.getenv("ALLOWED_ORIGINS", frontend_origin).split(",")
 
+if "*" in allowed_origins and os.getenv("ENVIRONMENT", "").lower() not in ("development", "dev", "test"):
+    allowed_origins = [o for o in allowed_origins if o != "*"]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -34,9 +37,10 @@ app.include_router(users_router, prefix="/api")
 
 @app.on_event("startup")
 def on_startup():
-    from app.database import SessionLocal
-    db = SessionLocal()
-    try:
-        seed_db(db)
-    finally:
-        db.close()
+    if os.getenv("ENVIRONMENT", "").lower() not in ("production", "prod"):
+        from app.database import SessionLocal
+        db = SessionLocal()
+        try:
+            seed_db(db)
+        finally:
+            db.close()
