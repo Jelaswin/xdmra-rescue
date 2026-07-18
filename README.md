@@ -211,3 +211,14 @@ Expected: 188 tests collected and passing.
 - No live GPS tracking of vehicles or teams
 - No integration with external government systems
 - Timeline aggregation limited to database-stored events
+
+## Cloud Deployment
+
+For free cloud deployment using Neon PostgreSQL, Render, and Vercel, see [DEPLOYMENT_FREE_CLOUD.md](DEPLOYMENT_FREE_CLOUD.md).
+
+### Deployment Overview
+
+- **Local development**: Uses SQLite (no setup required)
+- **Cloud deployment**: Uses PostgreSQL (Neon) with identical schema
+- **After cloud deployment**: Laptop can be switched off - services run independently
+- **Free-tier cold start**: Cloud backend may take 30-60 seconds to respond after inactivity

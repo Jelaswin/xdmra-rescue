@@ -1,6 +1,14 @@
 import { Incident, IncidentCreateRequest, DashboardSummary, RescueTeam, PriorityResult, TeamRecommendation, Allocation, MLPredictionResponse, PriorityComparisonResponse, ModelInfo, GeocodingResult, MapOverviewResponse, ReallocationRecommendationResult, ReallocationEventResponse, RouteConditionCreate, OperationalStatusUpdate, CommandDashboardSummary, PendingDecision, OperationalAlert, IncidentOperationalSummary, TimelineEvent, CommandMapOverview, LoginRequest, LoginResponse, User } from '../types';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+function getApiBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_API_URL as string | undefined;
+  if (envUrl && envUrl.trim() !== "") {
+    return envUrl.replace(/\/+$/, "");
+  }
+  return "http://127.0.0.1:8000/api";
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 const TOKEN_KEY = 'xdmra_access_token';
 const REFRESH_TOKEN_KEY = 'xdmra_refresh_token';

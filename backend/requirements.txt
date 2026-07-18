@@ -12,3 +12,4 @@ joblib
 passlib[bcrypt]
 python-jose[cryptography]
 pyjwt
+psycopg[binary]
