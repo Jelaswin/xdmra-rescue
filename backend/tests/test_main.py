@@ -1,63 +1,53 @@
 import pytest
 import hashlib
 from datetime import datetime, timezone
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 import os
 import json
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from fastapi.testclient import TestClient
 
 from app.main import app
 from app.database import Base, get_db
 from app.models import IncidentSeverity
 
-# Setup test DB
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test_phase2.db"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base.metadata.create_all(bind=engine)
 
-def override_get_db():
+def _override_get_db():
+    db = TestingSessionLocal()
     try:
-        db = TestingSessionLocal()
         yield db
     finally:
         db.close()
 
-app.dependency_overrides[get_db] = override_get_db
+app.dependency_overrides[get_db] = _override_get_db
 
 client = TestClient(app)
 
-@pytest.fixture(autouse=True)
-def setup_db():
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    from app.seed import seed_db
-    db = TestingSessionLocal()
-    seed_db(db)
-    db.close()
-
 # --- Original 7 Tests ---
 
-def test_health_check():
-    response = client.get("/api/health")
+def test_health_check(seeded_client):
+    response = seeded_client.get("/api/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "application": "X-DMRA Rescue"}
 
-def test_get_dashboard_summary():
-    response = client.get("/api/dashboard/summary")
+def test_get_dashboard_summary(seeded_client, admin_headers):
+    response = seeded_client.get("/api/dashboard/summary", headers=admin_headers)
     assert response.status_code == 200
     data = response.json()
     assert "total_incidents" in data
     assert data["total_incidents"] == 3
 
-def test_get_incidents():
-    response = client.get("/api/incidents")
+def test_get_incidents(seeded_client, admin_headers):
+    response = seeded_client.get("/api/incidents", headers=admin_headers)
     assert response.status_code == 200
     assert len(response.json()) == 3
 
-def test_create_valid_incident():
+def test_create_valid_incident(seeded_client, admin_headers):
     payload = {
         "title": "Test Incident",
         "description": "Test Desc",
@@ -74,36 +64,36 @@ def test_create_valid_incident():
         "required_skills": ["fire_fighting"],
         "required_equipment": ["extinguisher"]
     }
-    response = client.post("/api/incidents", json=payload)
+    response = seeded_client.post("/api/incidents", json=payload, headers=admin_headers)
     assert response.status_code == 201
     data = response.json()
     assert data["title"] == "Test Incident"
     assert data["status"] == "reported"
 
-def test_create_invalid_incident():
+def test_create_invalid_incident(seeded_client, admin_headers):
     payload = {
-        "title": "", 
+        "title": "",
         "description": "Test Desc",
         "incident_type": "Fire",
-        "latitude": 100.0, 
+        "latitude": 100.0,
         "longitude": -118.0,
         "severity": "high",
     }
-    response = client.post("/api/incidents", json=payload)
-    assert response.status_code == 422 
+    response = seeded_client.post("/api/incidents", json=payload, headers=admin_headers)
+    assert response.status_code == 422
 
-def test_get_missing_incident():
-    response = client.get("/api/incidents/999")
+def test_get_missing_incident(seeded_client, admin_headers):
+    response = seeded_client.get("/api/incidents/999", headers=admin_headers)
     assert response.status_code == 404
 
-def test_get_teams():
-    response = client.get("/api/teams")
+def test_get_teams(seeded_client, admin_headers):
+    response = seeded_client.get("/api/teams", headers=admin_headers)
     assert response.status_code == 200
     assert len(response.json()) == 5
 
 # --- Phase 2: 20 New Tests ---
 
-def test_priority_score_bounds():
+def test_priority_score_bounds(seeded_client, admin_headers):
     # 1. Priority score remains between 0 and 100.
     # Create extreme incident
     payload = {
@@ -112,18 +102,18 @@ def test_priority_score_bounds():
         "affected_people": 1000000, "injured_people": 500000, "vulnerable_people": 100000,
         "trapped_people": 10000, "children_count": 5000, "elderly_count": 5000,
     }
-    inc_resp = client.post("/api/incidents", json=payload)
+    inc_resp = seeded_client.post("/api/incidents", json=payload, headers=admin_headers)
     inc_id = inc_resp.json()["id"]
-    p_resp = client.post(f"/api/incidents/{inc_id}/calculate-priority")
+    p_resp = seeded_client.post(f"/api/incidents/{inc_id}/calculate-priority", headers=admin_headers)
     assert 0 <= p_resp.json()["priority_score"] <= 100
 
-def test_critical_classification():
+def test_critical_classification(seeded_client, admin_headers):
     # 2. Critical incidents receive a critical classification.
-    p_resp = client.post(f"/api/incidents/1/calculate-priority")
+    p_resp = seeded_client.post(f"/api/incidents/1/calculate-priority", headers=admin_headers)
     assert p_resp.status_code == 200
     assert p_resp.json()["priority_level"] == "critical"
 
-def test_low_impact_classification():
+def test_low_impact_classification(seeded_client, admin_headers):
     # 3. Low-impact incidents do not receive a critical classification.
     payload = {
         "title": "Puddle", "description": "Water", "incident_type": "Flood",
@@ -131,28 +121,28 @@ def test_low_impact_classification():
         "affected_people": 0, "injured_people": 0, "vulnerable_people": 0,
         "trapped_people": 0, "children_count": 0, "elderly_count": 0,
     }
-    inc_resp = client.post("/api/incidents", json=payload)
+    inc_resp = seeded_client.post("/api/incidents", json=payload, headers=admin_headers)
     inc_id = inc_resp.json()["id"]
-    p_resp = client.post(f"/api/incidents/{inc_id}/calculate-priority")
+    p_resp = seeded_client.post(f"/api/incidents/{inc_id}/calculate-priority", headers=admin_headers)
     assert p_resp.json()["priority_level"] != "critical"
     assert p_resp.json()["priority_level"] == "low"
 
-def test_priority_reasons_returned():
+def test_priority_reasons_returned(seeded_client, admin_headers):
     # 4. Priority reasons are returned.
-    p_resp = client.post(f"/api/incidents/1/calculate-priority")
+    p_resp = seeded_client.post(f"/api/incidents/1/calculate-priority", headers=admin_headers)
     assert "reasons" in p_resp.json()
     assert len(p_resp.json()["reasons"]) > 0
 
-def test_priority_results_stored():
+def test_priority_results_stored(seeded_client, admin_headers):
     # 5. Priority results are stored.
-    client.post(f"/api/incidents/1/calculate-priority")
-    inc_resp = client.get("/api/incidents/1")
+    seeded_client.post(f"/api/incidents/1/calculate-priority", headers=admin_headers)
+    inc_resp = seeded_client.get("/api/incidents/1", headers=admin_headers)
     assert inc_resp.json()["priority_score"] is not None
     assert inc_resp.json()["priority_level"] is not None
 
-def test_invalid_team_allocation():
+def test_invalid_team_allocation(seeded_client, admin_headers):
     req = {"rescue_team_id": 9999}
-    response = client.post("/api/incidents/1/allocations", json=req)
+    response = seeded_client.post("/api/incidents/1/allocations", json=req, headers=admin_headers)
     assert response.status_code == 404
 
 # --- Phase 3 ML Tests ---
@@ -188,8 +178,8 @@ def test_model_metadata_created():
     assert 'model_name' in meta
     assert 'model_version' in meta
 
-def test_model_info_endpoint():
-    response = client.get("/api/ml/model-info")
+def test_model_info_endpoint(seeded_client, admin_headers):
+    response = seeded_client.get("/api/ml/model-info", headers=admin_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["loaded"] is True
@@ -197,29 +187,29 @@ def test_model_info_endpoint():
     assert "classes" in data
     assert "low" in data["classes"]
 
-def test_predict_priority_missing_incident():
-    response = client.post("/api/incidents/9999/predict-priority-ml")
+def test_predict_priority_missing_incident(seeded_client, admin_headers):
+    response = seeded_client.post("/api/incidents/9999/predict-priority-ml", headers=admin_headers)
     assert response.status_code == 404
 
-def test_predict_priority_valid_incident():
-    response = client.post("/api/incidents/1/predict-priority-ml")
+def test_predict_priority_valid_incident(seeded_client, admin_headers):
+    response = seeded_client.post("/api/incidents/1/predict-priority-ml", headers=admin_headers)
     assert response.status_code == 200
     data = response.json()
     assert "ml_priority" in data
     assert data["ml_priority"] in ['low', 'medium', 'high', 'critical']
 
-def test_prediction_confidence_bounds():
-    response = client.post("/api/incidents/2/predict-priority-ml")
+def test_prediction_confidence_bounds(seeded_client, admin_headers):
+    response = seeded_client.post("/api/incidents/2/predict-priority-ml", headers=admin_headers)
     data = response.json()
     conf = data["ml_confidence"]
     assert 0.0 <= conf <= 1.0
 
-def test_prediction_class_probabilities_sum():
+def test_prediction_class_probabilities_sum(seeded_client, admin_headers):
     # Since class probabilities are not directly in PriorityComparisonResponse, we check the metadata in incident
-    response = client.post("/api/incidents/1/predict-priority-ml")
+    response = seeded_client.post("/api/incidents/1/predict-priority-ml", headers=admin_headers)
     assert response.status_code == 200
 
-def test_unknown_incident_type_handled():
+def test_unknown_incident_type_handled(seeded_client, admin_headers):
     # Insert a weird incident
     weird_req = {
         "title": "Alien Attack",
@@ -230,32 +220,32 @@ def test_unknown_incident_type_handled():
         "affected_people": 10, "injured_people": 0, "trapped_people": 0, "vulnerable_people": 0,
         "children_count": 0, "elderly_count": 0, "required_skills": [], "required_equipment": []
     }
-    create_res = client.post("/api/incidents", json=weird_req)
+    create_res = seeded_client.post("/api/incidents", json=weird_req, headers=admin_headers)
     assert create_res.status_code == 201
     inc_id = create_res.json()["id"]
     
     # Predict should not crash (OneHotEncoder handles unknown)
-    response = client.post(f"/api/incidents/{inc_id}/predict-priority-ml")
+    response = seeded_client.post(f"/api/incidents/{inc_id}/predict-priority-ml", headers=admin_headers)
     assert response.status_code == 200
     assert response.json()["ml_priority"] in ['low', 'medium', 'high', 'critical']
 
-def test_prediction_stored_in_incident():
-    client.post("/api/incidents/1/predict-priority-ml")
-    response = client.get("/api/incidents/1")
+def test_prediction_stored_in_incident(seeded_client, admin_headers):
+    seeded_client.post("/api/incidents/1/predict-priority-ml", headers=admin_headers)
+    response = seeded_client.get("/api/incidents/1", headers=admin_headers)
     data = response.json()
     assert data["ml_priority_level"] is not None
     assert data["ml_priority_confidence"] is not None
     assert data["priority_agreement_status"] is not None
 
-def test_agreement_status_calculated():
-    response = client.post("/api/incidents/3/predict-priority-ml")
+def test_agreement_status_calculated(seeded_client, admin_headers):
+    response = seeded_client.post("/api/incidents/3/predict-priority-ml", headers=admin_headers)
     assert response.status_code == 200
     data = response.json()
     assert "agreement_status" in data
     assert data["agreement_status"] in ["agreement", "minor_disagreement", "major_disagreement"]
 
-def test_requires_officer_review_boolean():
-    response = client.post("/api/incidents/1/predict-priority-ml")
+def test_requires_officer_review_boolean(seeded_client, admin_headers):
+    response = seeded_client.post("/api/incidents/1/predict-priority-ml", headers=admin_headers)
     data = response.json()
     assert isinstance(data["requires_officer_review"], bool)
 
@@ -277,18 +267,18 @@ def test_agreement_logic():
     assert res["agreement_status"] == "agreement"
     assert res["requires_officer_review"] is False
 
-def test_existing_rule_based_priority_works():
+def test_existing_rule_based_priority_works(seeded_client, admin_headers):
     # Make sure we didn't break /calculate-priority
-    response = client.post("/api/incidents/1/calculate-priority")
+    response = seeded_client.post("/api/incidents/1/calculate-priority", headers=admin_headers)
     assert response.status_code == 200
     assert "priority_score" in response.json()
 
-def test_existing_recommendation_works():
-    response = client.get("/api/incidents/1/team-recommendations")
+def test_existing_recommendation_works(seeded_client, admin_headers):
+    response = seeded_client.get("/api/incidents/1/team-recommendations", headers=admin_headers)
     assert response.status_code == 200
     assert isinstance(response.json(), list)
 
-def test_existing_allocation_works():
+def test_existing_allocation_works(seeded_client, admin_headers):
     # Create incident, predict priority, then allocate
     req = {
         "title": "Flood test",
@@ -299,28 +289,28 @@ def test_existing_allocation_works():
         "affected_people": 10, "injured_people": 0, "trapped_people": 0, "vulnerable_people": 0,
         "children_count": 0, "elderly_count": 0, "required_skills": [], "required_equipment": []
     }
-    inc_res = client.post("/api/incidents", json=req)
+    inc_res = seeded_client.post("/api/incidents", json=req, headers=admin_headers)
     inc_id = inc_res.json()["id"]
     
     # ML predict
-    client.post(f"/api/incidents/{inc_id}/predict-priority-ml")
+    seeded_client.post(f"/api/incidents/{inc_id}/predict-priority-ml", headers=admin_headers)
     
     # Allocate (ensure we don't break old endpoints)
     alloc_req = {"rescue_team_id": 2} # Assume team 2 exists and is available
-    alloc_res = client.post(f"/api/incidents/{inc_id}/allocations", json=alloc_req)
+    alloc_res = seeded_client.post(f"/api/incidents/{inc_id}/allocations", json=alloc_req, headers=admin_headers)
     assert alloc_res.status_code in [201, 400] # 400 if team busy, but endpoint logic works
 
-def test_missing_model_returns_controlled_error(monkeypatch):
+def test_missing_model_returns_controlled_error(seeded_client, admin_headers, monkeypatch):
     from app.services import priority_predictor
     # Mock load_model to fail
     monkeypatch.setattr(priority_predictor, "load_model", lambda: False)
-    response = client.post("/api/incidents/1/predict-priority-ml")
+    response = seeded_client.post("/api/incidents/1/predict-priority-ml", headers=admin_headers)
     assert response.status_code == 503
 
-def test_retrain_endpoint():
+def test_retrain_endpoint(seeded_client, admin_headers):
     from unittest.mock import patch
     with patch("ml.training.train_priority_model.train_models"):
-        response = client.post("/api/ml/retrain")
+        response = seeded_client.post("/api/ml/retrain", headers=admin_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
@@ -348,27 +338,27 @@ def test_model_metadata_immutable():
         after_hash = hashlib.sha256(f.read()).hexdigest()
     assert before_hash == after_hash, "model_metadata.json was modified during prediction"
 
-def test_available_teams_ranked():
+def test_available_teams_ranked(seeded_client, admin_headers):
     # 6. Available teams are ranked.
-    resp = client.get("/api/incidents/1/team-recommendations")
+    resp = seeded_client.get("/api/incidents/1/team-recommendations", headers=admin_headers)
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) > 0
     assert data[0]["rank"] == 1
     assert data[0]["total_score"] >= data[-1]["total_score"]
 
-def test_unavailable_teams_excluded():
+def test_unavailable_teams_excluded(seeded_client, admin_headers):
     # 7. Unavailable teams are excluded.
     # Manually making a team unavailable not exposed via API, but we have seed data.
     # We seeded 5 teams, one is 'assigned' (Charlie Heavy Lifting).
-    resp = client.get("/api/incidents/1/team-recommendations")
+    resp = seeded_client.get("/api/incidents/1/team-recommendations", headers=admin_headers)
     for r in resp.json():
         assert r["team_name"] != "Charlie Heavy Lifting"
 
-def test_assigned_teams_excluded():
+def test_assigned_teams_excluded(seeded_client, admin_headers):
     # 8. Assigned teams are excluded.
     # Charlie is assigned, so already tested above, but explicitly:
-    resp = client.get("/api/incidents/1/team-recommendations")
+    resp = seeded_client.get("/api/incidents/1/team-recommendations", headers=admin_headers)
     assigned_count = sum(1 for r in resp.json() if "Charlie" in r["team_name"])
     assert assigned_count == 0
 
@@ -379,102 +369,102 @@ def test_blocked_route_teams_excluded():
     # I'll let this pass trivially since we noted the limitation in the plan.
     assert True
 
-def test_required_skill_matching():
+def test_required_skill_matching(seeded_client, admin_headers):
     # 10. Required skill matching works.
-    resp = client.get("/api/incidents/1/team-recommendations")
+    resp = seeded_client.get("/api/incidents/1/team-recommendations", headers=admin_headers)
     # CBE Disaster Response Team has flood_rescue and medical_support (100% match)
     alpha = next(r for r in resp.json() if "CBE Disaster" in r["team_name"])
     assert alpha["skill_match_percentage"] == 100.0
 
-def test_required_equipment_matching():
+def test_required_equipment_matching(seeded_client, admin_headers):
     # 11. Required equipment matching works.
-    resp = client.get("/api/incidents/1/team-recommendations")
+    resp = seeded_client.get("/api/incidents/1/team-recommendations", headers=admin_headers)
     alpha = next(r for r in resp.json() if "CBE Disaster" in r["team_name"])
     assert alpha["equipment_match_percentage"] == 100.0
 
-def test_distance_calculation():
+def test_distance_calculation(seeded_client, admin_headers):
     # 12. Distance calculation works.
-    resp = client.get("/api/incidents/1/team-recommendations")
+    resp = seeded_client.get("/api/incidents/1/team-recommendations", headers=admin_headers)
     assert resp.json()[0]["distance_km"] >= 0
 
-def test_allocation_creation_succeeds():
+def test_allocation_creation_succeeds(seeded_client, admin_headers):
     # 13. Allocation creation succeeds.
-    resp = client.post("/api/incidents/1/allocations", json={"rescue_team_id": 1})
+    resp = seeded_client.post("/api/incidents/1/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
     assert resp.status_code == 201
     assert resp.json()["status"] == "approved"
 
-def test_incident_status_assigned():
+def test_incident_status_assigned(seeded_client, admin_headers):
     # 14. Incident status becomes assigned.
-    client.post("/api/incidents/2/allocations", json={"rescue_team_id": 2})
-    resp = client.get("/api/incidents/2")
+    seeded_client.post("/api/incidents/2/allocations", json={"rescue_team_id": 2}, headers=admin_headers)
+    resp = seeded_client.get("/api/incidents/2", headers=admin_headers)
     assert resp.json()["status"] == "assigned"
 
-def test_team_status_assigned():
+def test_team_status_assigned(seeded_client, admin_headers):
     # 15. Team status becomes assigned.
-    client.post("/api/incidents/3/allocations", json={"rescue_team_id": 4})
-    resp = client.get("/api/teams/4")
+    seeded_client.post("/api/incidents/3/allocations", json={"rescue_team_id": 4}, headers=admin_headers)
+    resp = seeded_client.get("/api/teams/4", headers=admin_headers)
     assert resp.json()["availability_status"] == "assigned"
     assert resp.json()["current_workload"] == 1 # Increased by 1
 
-def test_active_allocation_count_increases():
+def test_active_allocation_count_increases(seeded_client, admin_headers):
     # 16. Active allocation count increases.
-    summary_before = client.get("/api/dashboard/summary").json()
+    summary_before = seeded_client.get("/api/dashboard/summary", headers=admin_headers).json()
     
     payload = {
         "title": "Count Test", "description": "Count Test", "incident_type": "Flood",
         "latitude": 0, "longitude": 0, "severity": "low"
     }
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 5})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 5}, headers=admin_headers)
     
-    summary_after = client.get("/api/dashboard/summary").json()
+    summary_after = seeded_client.get("/api/dashboard/summary", headers=admin_headers).json()
     assert summary_after["active_allocations"] == summary_before["active_allocations"] + 1
 
-def test_duplicate_active_allocation_rejected():
+def test_duplicate_active_allocation_rejected(seeded_client, admin_headers):
     # 17. Duplicate active allocation is rejected.
     payload = {
         "title": "Dup Test", "description": "Dup Test", "incident_type": "Flood",
         "latitude": 0, "longitude": 0, "severity": "low"
     }
-    inc = client.post("/api/incidents", json=payload).json()
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
     
-    res1 = client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    res1 = seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
     assert res1.status_code == 201
     
-    res2 = client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 2})
+    res2 = seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 2}, headers=admin_headers)
     assert res2.status_code == 400
     assert "already has an active allocation" in res2.json()["detail"]
 
-def test_missing_incident_allocation():
+def test_missing_incident_allocation(seeded_client, admin_headers):
     # 18. Missing incident returns 404.
-    res = client.post("/api/incidents/999/allocations", json={"rescue_team_id": 1})
+    res = seeded_client.post("/api/incidents/999/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
     assert res.status_code == 404
 
 # --- Phase 4 Map and Location Tests ---
 from unittest.mock import patch, AsyncMock
 from app.models import LocationAccuracy, LocationSource
 
-def test_location_search_empty_query():
-    res = client.get("/api/locations/search?q=")
+def test_location_search_empty_query(seeded_client, admin_headers):
+    res = seeded_client.get("/api/locations/search?q=", headers=admin_headers)
     assert res.status_code == 400
 
 @patch("app.api.__init__.geocoding_service.search_location", new_callable=AsyncMock)
-def test_location_search_valid(mock_search):
+def test_location_search_valid(mock_search, seeded_client, admin_headers):
     mock_search.return_value = [{"display_name": "Coimbatore", "latitude": 11.0168, "longitude": 76.9558, "provider": "nominatim"}]
     
-    res = client.get("/api/locations/search?q=Coimbatore")
+    res = seeded_client.get("/api/locations/search?q=Coimbatore", headers=admin_headers)
     assert res.status_code == 200
     assert len(res.json()) == 1
     assert res.json()[0]["latitude"] == 11.0168
 
 @patch("app.api.__init__.geocoding_service.search_location", new_callable=AsyncMock)
-def test_location_search_failure_handled(mock_search):
+def test_location_search_failure_handled(mock_search, seeded_client, admin_headers):
     mock_search.return_value = []
-    res = client.get("/api/locations/search?q=Unknown")
+    res = seeded_client.get("/api/locations/search?q=Unknown", headers=admin_headers)
     assert res.status_code == 200
     assert res.json() == []
 
-def test_incident_location_update_succeeds():
+def test_incident_location_update_succeeds(seeded_client, admin_headers):
     payload = {
         "latitude": 11.0500,
         "longitude": 77.0000,
@@ -483,41 +473,41 @@ def test_incident_location_update_succeeds():
         "location_source": "map_click",
         "location_notes": "Tested"
     }
-    res = client.patch("/api/incidents/1/location", json=payload)
+    res = seeded_client.patch("/api/incidents/1/location", json=payload, headers=admin_headers)
     assert res.status_code == 200
     data = res.json()
     assert data["latitude"] == 11.0500
     assert data["location_name"] == "New Area"
 
-def test_incident_location_invalid_latitude():
+def test_incident_location_invalid_latitude(seeded_client, admin_headers):
     payload = {"latitude": 100.0, "longitude": 77.0}
-    res = client.patch("/api/incidents/1/location", json=payload)
+    res = seeded_client.patch("/api/incidents/1/location", json=payload, headers=admin_headers)
     assert res.status_code == 422
 
-def test_incident_location_invalid_longitude():
+def test_incident_location_invalid_longitude(seeded_client, admin_headers):
     payload = {"latitude": 11.0, "longitude": 200.0}
-    res = client.patch("/api/incidents/1/location", json=payload)
+    res = seeded_client.patch("/api/incidents/1/location", json=payload, headers=admin_headers)
     assert res.status_code == 422
 
-def test_incident_location_missing_incident():
+def test_incident_location_missing_incident(seeded_client, admin_headers):
     payload = {"latitude": 11.0, "longitude": 77.0}
-    res = client.patch("/api/incidents/999/location", json=payload)
+    res = seeded_client.patch("/api/incidents/999/location", json=payload, headers=admin_headers)
     assert res.status_code == 404
 
-def test_team_location_update_succeeds():
+def test_team_location_update_succeeds(seeded_client, admin_headers):
     payload = {"latitude": 11.1000, "longitude": 77.1000}
-    res = client.patch("/api/teams/1/location", json=payload)
+    res = seeded_client.patch("/api/teams/1/location", json=payload, headers=admin_headers)
     assert res.status_code == 200
     data = res.json()
     assert data["latitude"] == 11.1000
 
-def test_team_location_missing_team():
+def test_team_location_missing_team(seeded_client, admin_headers):
     payload = {"latitude": 11.1000, "longitude": 77.1000}
-    res = client.patch("/api/teams/999/location", json=payload)
+    res = seeded_client.patch("/api/teams/999/location", json=payload, headers=admin_headers)
     assert res.status_code == 404
 
-def test_map_overview():
-    res = client.get("/api/map/overview")
+def test_map_overview(seeded_client, admin_headers):
+    res = seeded_client.get("/api/map/overview", headers=admin_headers)
     assert res.status_code == 200
     data = res.json()
     assert "incidents" in data
@@ -525,24 +515,24 @@ def test_map_overview():
     assert len(data["incidents"]) > 0
     assert len(data["teams"]) > 0
 
-def test_existing_priority_prediction_still_works():
-    res = client.post("/api/incidents/1/predict-priority-ml")
+def test_existing_priority_prediction_still_works(seeded_client, admin_headers):
+    res = seeded_client.post("/api/incidents/1/predict-priority-ml", headers=admin_headers)
     assert res.status_code == 200
     assert "ml_priority" in res.json()
 
-def test_existing_recommendation_uses_updated_coordinates():
+def test_existing_recommendation_uses_updated_coordinates(seeded_client, admin_headers):
     # Update incident to a far location
-    client.patch("/api/incidents/1/location", json={"latitude": 15.0, "longitude": 80.0})
-    res = client.get("/api/incidents/1/team-recommendations")
+    seeded_client.patch("/api/incidents/1/location", json={"latitude": 15.0, "longitude": 80.0}, headers=admin_headers)
+    res = seeded_client.get("/api/incidents/1/team-recommendations", headers=admin_headers)
     assert res.status_code == 200
     recs = res.json()
     # Distance should be large (e.g. > 100km) since incident is at 15.0, 80.0 and teams are around 11.0, 77.0
     assert recs[0]["distance_km"] > 100
 
-def test_haversine_distance_changes_after_team_update():
+def test_haversine_distance_changes_after_team_update(seeded_client, admin_headers):
     # Move a team close to the incident
-    client.patch("/api/teams/1/location", json={"latitude": 10.99, "longitude": 76.96})
-    res = client.get("/api/incidents/1/team-recommendations")
+    seeded_client.patch("/api/teams/1/location", json={"latitude": 10.99, "longitude": 76.96}, headers=admin_headers)
+    res = seeded_client.get("/api/incidents/1/team-recommendations", headers=admin_headers)
     assert res.status_code == 200
     recs = res.json()
     team1_rec = next((r for r in recs if r["team_id"] == 1), None)
@@ -550,275 +540,275 @@ def test_haversine_distance_changes_after_team_update():
     # Team 1 is now very close to the incident (10.9925, 76.96) compared to others
     assert team1_rec["distance_km"] < 50
 
-def test_missing_team_allocation():
+def test_missing_team_allocation(seeded_client, admin_headers):
     # 19. Missing team returns 404.
     payload = {
         "title": "Team Test", "description": "Team Test", "incident_type": "Flood",
         "latitude": 0, "longitude": 0, "severity": "low"
     }
-    inc = client.post("/api/incidents", json=payload).json()
-    res = client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 999})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 999}, headers=admin_headers)
     assert res.status_code == 404
 
-def test_invalid_team_allocation():
+def test_invalid_team_allocation(seeded_client, admin_headers):
     # 20. Invalid team allocation is rejected (unavailable team).
     # Team 3 is assigned (unavailable)
     payload = {
         "title": "Unavail Test", "description": "Unavail Test", "incident_type": "Flood",
         "latitude": 0, "longitude": 0, "severity": "low"
     }
-    inc = client.post("/api/incidents", json=payload).json()
-    res = client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 3})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 3}, headers=admin_headers)
     assert res.status_code == 400
     assert "not available" in res.json()["detail"]
 
 # --- Phase 5 Reallocation Tests ---
 
-def test_p5_01_update_team_operational_status_success():
-    res = client.patch("/api/teams/1/operational-status", json={"availability_status": "unavailable", "reason": "Breakdown"})
+def test_p5_01_update_team_operational_status_success(seeded_client, admin_headers):
+    res = seeded_client.patch("/api/teams/1/operational-status", json={"availability_status": "unavailable", "reason": "Breakdown"}, headers=admin_headers)
     assert res.status_code == 200
     assert res.json()["availability_status"] == "unavailable"
     # Revert for other tests
-    client.patch("/api/teams/1/operational-status", json={"availability_status": "available", "reason": ""})
+    seeded_client.patch("/api/teams/1/operational-status", json={"availability_status": "available", "reason": ""}, headers=admin_headers)
 
-def test_p5_02_update_team_operational_status_missing():
-    res = client.patch("/api/teams/999/operational-status", json={"availability_status": "unavailable"})
+def test_p5_02_update_team_operational_status_missing(seeded_client, admin_headers):
+    res = seeded_client.patch("/api/teams/999/operational-status", json={"availability_status": "unavailable"}, headers=admin_headers)
     assert res.status_code == 404
 
-def test_p5_03_create_route_condition():
-    res = client.post("/api/incidents/1/route-conditions", json={"rescue_team_id": 1, "risk_level": "high", "is_blocked": True, "estimated_delay_minutes": 30, "description": "Blocked"})
+def test_p5_03_create_route_condition(seeded_client, admin_headers):
+    res = seeded_client.post("/api/incidents/1/route-conditions", json={"rescue_team_id": 1, "risk_level": "high", "is_blocked": True, "estimated_delay_minutes": 30, "description": "Blocked"}, headers=admin_headers)
     assert res.status_code == 200
     assert res.json()["is_blocked"] is True
 
-def test_p5_04_create_route_condition_updates_existing():
-    client.post("/api/incidents/1/route-conditions", json={"rescue_team_id": 1, "risk_level": "high", "is_blocked": True})
-    res = client.post("/api/incidents/1/route-conditions", json={"rescue_team_id": 1, "risk_level": "low", "is_blocked": False})
+def test_p5_04_create_route_condition_updates_existing(seeded_client, admin_headers):
+    seeded_client.post("/api/incidents/1/route-conditions", json={"rescue_team_id": 1, "risk_level": "high", "is_blocked": True}, headers=admin_headers)
+    res = seeded_client.post("/api/incidents/1/route-conditions", json={"rescue_team_id": 1, "risk_level": "low", "is_blocked": False}, headers=admin_headers)
     assert res.status_code == 200
     assert res.json()["is_blocked"] is False
 
-def test_p5_05_update_route_condition():
-    res = client.patch("/api/route-conditions/9999", json={"rescue_team_id": 1, "risk_level": "low", "is_blocked": False})
+def test_p5_05_update_route_condition(seeded_client, admin_headers):
+    res = seeded_client.patch("/api/route-conditions/9999", json={"rescue_team_id": 1, "risk_level": "low", "is_blocked": False}, headers=admin_headers)
     assert res.status_code == 404
 
-def test_p5_06_evaluate_missing_incident():
-    res = client.post("/api/incidents/999/evaluate-reallocation", json={"trigger_type": "test"})
+def test_p5_06_evaluate_missing_incident(seeded_client, admin_headers):
+    res = seeded_client.post("/api/incidents/999/evaluate-reallocation", json={"trigger_type": "test"}, headers=admin_headers)
     assert res.status_code == 404
 
-def test_p5_07_evaluate_no_active_allocation():
+def test_p5_07_evaluate_no_active_allocation(seeded_client, admin_headers):
     payload = {"title": "No Alloc", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"}, headers=admin_headers)
     assert res.status_code == 400
     assert "No active allocation" in res.json()["detail"]
 
-def test_p5_08_evaluate_success():
+def test_p5_08_evaluate_success(seeded_client, admin_headers):
     payload = {"title": "Eval Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
     
-    res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "route_blocked"})
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "route_blocked"}, headers=admin_headers)
     assert res.status_code == 200
     data = res.json()
     assert data["reallocation_required"] is True
     assert "recommended_replacement" in data
 
-def test_p5_09_evaluate_no_alternatives_left():
+def test_p5_09_evaluate_no_alternatives_left(seeded_client, admin_headers):
     payload = {"title": "No Alt Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
     
-    client.patch("/api/teams/2/operational-status", json={"availability_status": "unavailable"})
-    client.patch("/api/teams/4/operational-status", json={"availability_status": "unavailable"})
-    client.patch("/api/teams/5/operational-status", json={"availability_status": "unavailable"})
+    seeded_client.patch("/api/teams/2/operational-status", json={"availability_status": "unavailable"}, headers=admin_headers)
+    seeded_client.patch("/api/teams/4/operational-status", json={"availability_status": "unavailable"}, headers=admin_headers)
+    seeded_client.patch("/api/teams/5/operational-status", json={"availability_status": "unavailable"}, headers=admin_headers)
     
-    res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "route_blocked"})
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "route_blocked"}, headers=admin_headers)
     assert res.status_code == 200
     assert res.json()["recommended_replacement"] is None
 
-    client.patch("/api/teams/2/operational-status", json={"availability_status": "available"})
-    client.patch("/api/teams/4/operational-status", json={"availability_status": "available"})
-    client.patch("/api/teams/5/operational-status", json={"availability_status": "available"})
+    seeded_client.patch("/api/teams/2/operational-status", json={"availability_status": "available"}, headers=admin_headers)
+    seeded_client.patch("/api/teams/4/operational-status", json={"availability_status": "available"}, headers=admin_headers)
+    seeded_client.patch("/api/teams/5/operational-status", json={"availability_status": "available"}, headers=admin_headers)
 
-def test_p5_10_approve_missing_incident():
-    res = client.post("/api/incidents/999/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
+def test_p5_10_approve_missing_incident(seeded_client, admin_headers):
+    res = seeded_client.post("/api/incidents/999/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"}, headers=admin_headers)
     assert res.status_code == 404
 
-def test_p5_11_approve_no_active_allocation():
+def test_p5_11_approve_no_active_allocation(seeded_client, admin_headers):
     payload = {"title": "No Alloc Approve", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    res = client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"}, headers=admin_headers)
     assert res.status_code == 400
 
-def test_p5_12_approve_missing_team():
+def test_p5_12_approve_missing_team(seeded_client, admin_headers):
     payload = {"title": "Approve Missing", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
-    res = client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 999, "trigger_type": "test", "reason": "test"})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 999, "trigger_type": "test", "reason": "test"}, headers=admin_headers)
     assert res.status_code == 404
 
-def test_p5_13_approve_unavailable_team():
+def test_p5_13_approve_unavailable_team(seeded_client, admin_headers):
     payload = {"title": "Approve Unavail", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
-    client.patch("/api/teams/2/operational-status", json={"availability_status": "unavailable"})
-    res = client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
+    seeded_client.patch("/api/teams/2/operational-status", json={"availability_status": "unavailable"}, headers=admin_headers)
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"}, headers=admin_headers)
     assert res.status_code == 400
-    client.patch("/api/teams/2/operational-status", json={"availability_status": "available"})
+    seeded_client.patch("/api/teams/2/operational-status", json={"availability_status": "available"}, headers=admin_headers)
 
-def test_p5_14_approve_blocked_route_team():
+def test_p5_14_approve_blocked_route_team(seeded_client, admin_headers):
     payload = {"title": "Approve Blocked", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
-    client.post(f"/api/incidents/{inc['id']}/route-conditions", json={"rescue_team_id": 2, "risk_level": "high", "is_blocked": True, "estimated_delay_minutes": 0})
-    res = client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
+    seeded_client.post(f"/api/incidents/{inc['id']}/route-conditions", json={"rescue_team_id": 2, "risk_level": "high", "is_blocked": True, "estimated_delay_minutes": 0}, headers=admin_headers)
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"}, headers=admin_headers)
     assert res.status_code == 400
-    client.post(f"/api/incidents/{inc['id']}/route-conditions", json={"rescue_team_id": 2, "risk_level": "low", "is_blocked": False, "estimated_delay_minutes": 0})
+    seeded_client.post(f"/api/incidents/{inc['id']}/route-conditions", json={"rescue_team_id": 2, "risk_level": "low", "is_blocked": False, "estimated_delay_minutes": 0}, headers=admin_headers)
 
-def test_p5_15_approve_success_creates_new_allocation():
+def test_p5_15_approve_success_creates_new_allocation(seeded_client, admin_headers):
     payload = {"title": "Approve Success", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
-    res = client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "route_blocked", "reason": "Debris"})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "route_blocked", "reason": "Debris"}, headers=admin_headers)
     assert res.status_code == 200
     assert res.json()["rescue_team_id"] == 2
     assert res.json()["status"] == "approved"
 
-def test_p5_16_approve_success_supersedes_old():
+def test_p5_16_approve_success_supersedes_old(seeded_client, admin_headers):
     payload = {"title": "Supersede Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    alloc1 = client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}).json()
-    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "route_blocked", "reason": "Debris"})
-    history = client.get(f"/api/incidents/{inc['id']}/allocations").json()
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    alloc1 = seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "route_blocked", "reason": "Debris"}, headers=admin_headers)
+    history = seeded_client.get(f"/api/incidents/{inc['id']}/allocations", headers=admin_headers).json()
     old_alloc = next(a for a in history if a["id"] == alloc1["id"])
     assert old_alloc["status"] == "superseded"
     assert old_alloc["reallocation_reason"] == "route_blocked"
 
-def test_p5_17_approve_releases_old_workload():
+def test_p5_17_approve_releases_old_workload(seeded_client, admin_headers):
     payload = {"title": "Workload Old", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
-    team1_before = client.get("/api/teams/1").json()
-    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "route_blocked", "reason": "Debris"})
-    team1_after = client.get("/api/teams/1").json()
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
+    team1_before = seeded_client.get("/api/teams/1", headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "route_blocked", "reason": "Debris"}, headers=admin_headers)
+    team1_after = seeded_client.get("/api/teams/1", headers=admin_headers).json()
     assert team1_after["current_workload"] == team1_before["current_workload"] - 1
 
-def test_p5_18_approve_increases_new_workload():
+def test_p5_18_approve_increases_new_workload(seeded_client, admin_headers):
     payload = {"title": "Workload New", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
-    team2_before = client.get("/api/teams/2").json()
-    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "route_blocked", "reason": "Debris"})
-    team2_after = client.get("/api/teams/2").json()
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
+    team2_before = seeded_client.get("/api/teams/2", headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "route_blocked", "reason": "Debris"}, headers=admin_headers)
+    team2_after = seeded_client.get("/api/teams/2", headers=admin_headers).json()
     assert team2_after["current_workload"] == team2_before["current_workload"] + 1
 
-def test_p5_19_approve_creates_event():
+def test_p5_19_approve_creates_event(seeded_client, admin_headers):
     payload = {"title": "Event Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
-    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "team_unavailable", "reason": "Breakdown"})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
+    seeded_client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "team_unavailable", "reason": "Breakdown"}, headers=admin_headers)
     
-    events = client.get(f"/api/incidents/{inc['id']}/reallocation-history").json()
+    events = seeded_client.get(f"/api/incidents/{inc['id']}/reallocation-history", headers=admin_headers).json()
     assert len(events) == 1
     assert events[0]["trigger_type"] == "team_unavailable"
     assert events[0]["previous_team_id"] == 1
     assert events[0]["replacement_team_id"] == 2
 
-def test_p5_20_history_endpoint_empty():
+def test_p5_20_history_endpoint_empty(seeded_client, admin_headers):
     payload = {"title": "History Empty", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    events = client.get(f"/api/incidents/{inc['id']}/reallocation-history").json()
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    events = seeded_client.get(f"/api/incidents/{inc['id']}/reallocation-history", headers=admin_headers).json()
     assert len(events) == 0
 
-def test_p5_21_evaluate_explanation_contains_trigger():
+def test_p5_21_evaluate_explanation_contains_trigger(seeded_client, admin_headers):
     payload = {"title": "Expl Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
-    res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "custom_trigger"})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "custom_trigger"}, headers=admin_headers)
     assert "custom_trigger" in res.json()["explanation"]
 
-def test_p5_22_evaluate_alternative_list_matches_recommendation():
+def test_p5_22_evaluate_alternative_list_matches_recommendation(seeded_client, admin_headers):
     payload = {"title": "Alt List Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
-    res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"}, headers=admin_headers)
     assert len(res.json()["alternatives"]) > 0
 
-def test_p5_23_evaluate_excludes_current_team():
+def test_p5_23_evaluate_excludes_current_team(seeded_client, admin_headers):
     payload = {"title": "Excl Current", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
-    res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"}, headers=admin_headers)
     alts = res.json()["alternatives"]
     for a in alts:
         assert a["team_id"] != 1
 
-def test_p5_24_route_penalty_applied():
+def test_p5_24_route_penalty_applied(seeded_client, admin_headers):
     payload = {"title": "Penalty Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
     
-    res1 = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"})
+    res1 = seeded_client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"}, headers=admin_headers)
     team2_score1 = next(a["total_score"] for a in res1.json()["alternatives"] if a["team_id"] == 2)
     
-    client.post(f"/api/incidents/{inc['id']}/route-conditions", json={"rescue_team_id": 2, "risk_level": "high", "is_blocked": False, "estimated_delay_minutes": 10})
+    seeded_client.post(f"/api/incidents/{inc['id']}/route-conditions", json={"rescue_team_id": 2, "risk_level": "high", "is_blocked": False, "estimated_delay_minutes": 10}, headers=admin_headers)
     
-    res2 = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"})
+    res2 = seeded_client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "test"}, headers=admin_headers)
     team2_score2 = next(a["total_score"] for a in res2.json()["alternatives"] if a["team_id"] == 2)
     
     assert team2_score2 < team2_score1
 
-def test_p5_25_approve_sets_new_team_assigned():
+def test_p5_25_approve_sets_new_team_assigned(seeded_client, admin_headers):
     payload = {"title": "Assign New Team", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
-    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
-    team2 = client.get("/api/teams/2").json()
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
+    seeded_client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"}, headers=admin_headers)
+    team2 = seeded_client.get("/api/teams/2", headers=admin_headers).json()
     assert team2["availability_status"] == "assigned"
 
-def test_p5_26_approve_sets_old_team_available():
+def test_p5_26_approve_sets_old_team_available(seeded_client, admin_headers):
     payload = {"title": "Old Team Avail", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
-    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
-    team1 = client.get("/api/teams/1").json()
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
+    seeded_client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"}, headers=admin_headers)
+    team1 = seeded_client.get("/api/teams/1", headers=admin_headers).json()
     assert team1["availability_status"] == "available"
 
-def test_p5_27_approve_duplicate_rollback():
+def test_p5_27_approve_duplicate_rollback(seeded_client, admin_headers):
     payload = {"title": "Rollback Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
     
-    client.patch("/api/teams/2/operational-status", json={"availability_status": "unavailable"})
+    seeded_client.patch("/api/teams/2/operational-status", json={"availability_status": "unavailable"}, headers=admin_headers)
     
-    res = client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"})
+    res = seeded_client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": 2, "trigger_type": "test", "reason": "test"}, headers=admin_headers)
     assert res.status_code == 400
     
-    team1 = client.get("/api/teams/1").json()
+    team1 = seeded_client.get("/api/teams/1", headers=admin_headers).json()
     assert team1["availability_status"] == "assigned"
     
-    client.patch("/api/teams/2/operational-status", json={"availability_status": "available"})
+    seeded_client.patch("/api/teams/2/operational-status", json={"availability_status": "available"}, headers=admin_headers)
 
-def test_p5_28_end_to_end_reallocation_flow():
+def test_p5_28_end_to_end_reallocation_flow(seeded_client, admin_headers):
     payload = {"title": "E2E Test", "description": "Desc", "incident_type": "Flood", "latitude": 0, "longitude": 0, "severity": "low"}
-    inc = client.post("/api/incidents", json=payload).json()
-    client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1})
+    inc = seeded_client.post("/api/incidents", json=payload, headers=admin_headers).json()
+    seeded_client.post(f"/api/incidents/{inc['id']}/allocations", json={"rescue_team_id": 1}, headers=admin_headers)
     
-    client.post(f"/api/incidents/{inc['id']}/route-conditions", json={"rescue_team_id": 1, "risk_level": "high", "is_blocked": True, "estimated_delay_minutes": 30})
+    seeded_client.post(f"/api/incidents/{inc['id']}/route-conditions", json={"rescue_team_id": 1, "risk_level": "high", "is_blocked": True, "estimated_delay_minutes": 30}, headers=admin_headers)
     
-    eval_res = client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "route_blocked"}).json()
+    eval_res = seeded_client.post(f"/api/incidents/{inc['id']}/evaluate-reallocation", json={"trigger_type": "route_blocked"}, headers=admin_headers).json()
     assert eval_res["reallocation_required"] is True
     
     new_team_id = eval_res["recommended_replacement"]["team_id"]
-    client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": new_team_id, "trigger_type": "route_blocked", "reason": "test"})
+    seeded_client.post(f"/api/incidents/{inc['id']}/reallocate", json={"replacement_team_id": new_team_id, "trigger_type": "route_blocked", "reason": "test"}, headers=admin_headers)
     
-    history = client.get(f"/api/incidents/{inc['id']}/reallocation-history").json()
+    history = seeded_client.get(f"/api/incidents/{inc['id']}/reallocation-history", headers=admin_headers).json()
     assert len(history) == 1
     assert history[0]["replacement_team_id"] == new_team_id
 
 # ==========================================
 # PHASE 6: RELIEF ALLOCATION TESTS
 # ==========================================
-def test_relief_demand_suggestion():
+def test_relief_demand_suggestion(seeded_client, admin_headers):
     # Setup test incident
     inc_payload = {
         "title": "Flood Relief", "description": "Flood", "incident_type": "flood",
@@ -826,10 +816,10 @@ def test_relief_demand_suggestion():
         "affected_people": 100, "injured_people": 20, "vulnerable_people": 10,
         "children_count": 15, "elderly_count": 5
     }
-    resp = client.post("/api/incidents/", json=inc_payload)
+    resp = seeded_client.post("/api/incidents/", json=inc_payload, headers=admin_headers)
     inc_id = resp.json()["id"]
     
-    res = client.post(f"/api/incidents/{inc_id}/relief-demand/suggest?support_duration_days=2")
+    res = seeded_client.post(f"/api/incidents/{inc_id}/relief-demand/suggest?support_duration_days=2", headers=admin_headers)
     assert res.status_code == 200
     data = res.json()
     assert data["support_duration_days"] == 2
@@ -842,13 +832,13 @@ def test_relief_demand_suggestion():
     assert items["hygiene_kit"] == (100 // 4) * 1 # 25
     assert items["baby_supply_kit"] == 15 * 1 # 15
 
-def test_officer_overrides_stored():
+def test_officer_overrides_stored(seeded_client, admin_headers):
     inc_payload = {
         "title": "Relief Override Test", "description": "Test", "incident_type": "fire",
         "latitude": 11.0, "longitude": 77.0, "severity": "medium",
         "affected_people": 10, "injured_people": 0, "vulnerable_people": 0
     }
-    inc_id = client.post("/api/incidents/", json=inc_payload).json()["id"]
+    inc_id = seeded_client.post("/api/incidents/", json=inc_payload, headers=admin_headers).json()["id"]
     
     req_payload = {
         "support_duration_days": 1,
@@ -857,28 +847,28 @@ def test_officer_overrides_stored():
             {"item_type": "food_packet", "requested_quantity": 50, "source_type": "officer_modified", "calculation_reason": "adjusted manually"}
         ]
     }
-    res = client.post(f"/api/incidents/{inc_id}/relief-requests", json=req_payload)
+    res = seeded_client.post(f"/api/incidents/{inc_id}/relief-requests", json=req_payload, headers=admin_headers)
     assert res.status_code == 201
     data = res.json()
     assert data["items"][0]["source_type"] == "officer_modified"
     assert data["items"][0]["approved_quantity"] == 50
 
-def test_warehouse_creation_and_retrieval():
+def test_warehouse_creation_and_retrieval(seeded_client, admin_headers):
     payload = {
         "name": "Test Warehouse",
         "latitude": 11.1,
         "longitude": 77.1,
         "maximum_dispatch_capacity": 500
     }
-    res = client.post("/api/warehouses", json=payload)
+    res = seeded_client.post("/api/warehouses", json=payload, headers=admin_headers)
     assert res.status_code == 201
     w_id = res.json()["id"]
     
-    get_res = client.get(f"/api/warehouses/{w_id}")
+    get_res = seeded_client.get(f"/api/warehouses/{w_id}", headers=admin_headers)
     assert get_res.status_code == 200
     assert get_res.json()["name"] == "Test Warehouse"
 
-def test_inventory_creation_and_update():
+def test_inventory_creation_and_update(seeded_client, admin_headers):
     payload = {
         "item_type": "test_item",
         "display_name": "Test Item",
@@ -887,36 +877,36 @@ def test_inventory_creation_and_update():
         "reorder_level": 10,
         "warehouse_id": 1
     }
-    res = client.post("/api/warehouses/1/inventory", json=payload)
+    res = seeded_client.post("/api/warehouses/1/inventory", json=payload, headers=admin_headers)
     assert res.status_code == 201
     inv_id = res.json()["id"]
     
-    client.patch(f"/api/inventory/{inv_id}", json={"quantity_available": 200})
-    get_res = client.get("/api/warehouses/1/inventory")
+    seeded_client.patch(f"/api/inventory/{inv_id}", json={"quantity_available": 200}, headers=admin_headers)
+    get_res = seeded_client.get("/api/warehouses/1/inventory", headers=admin_headers)
     items = get_res.json()
     updated = next(i for i in items if i["id"] == inv_id)
     assert updated["quantity_available"] == 200
 
-def test_missing_incident_404():
-    res = client.post("/api/incidents/9999/relief-demand/suggest")
+def test_missing_incident_404(seeded_client, admin_headers):
+    res = seeded_client.post("/api/incidents/9999/relief-demand/suggest", headers=admin_headers)
     assert res.status_code == 404
 
-def test_missing_warehouse_404():
-    res = client.get("/api/warehouses/9999")
+def test_missing_warehouse_404(seeded_client, admin_headers):
+    res = seeded_client.get("/api/warehouses/9999", headers=admin_headers)
     assert res.status_code == 404
 
-def test_missing_relief_request_404():
-    res = client.get("/api/relief-requests/9999")
+def test_missing_relief_request_404(seeded_client, admin_headers):
+    res = seeded_client.get("/api/relief-requests/9999", headers=admin_headers)
     assert res.status_code == 404
 
-def test_single_source_recommendation():
+def test_single_source_recommendation(seeded_client, admin_headers):
     # Use incident 1 and its relief demand
     inc_payload = {
         "title": "Single Source Test", "description": "Test", "incident_type": "fire",
         "latitude": 11.0, "longitude": 76.95, "severity": "medium",
         "affected_people": 5, "injured_people": 0, "vulnerable_people": 0
     }
-    inc_id = client.post("/api/incidents/", json=inc_payload).json()["id"]
+    inc_id = seeded_client.post("/api/incidents/", json=inc_payload, headers=admin_headers).json()["id"]
     req_payload = {
         "support_duration_days": 1,
         "total_people": 5,
@@ -924,23 +914,23 @@ def test_single_source_recommendation():
             {"item_type": "food_packet", "requested_quantity": 10, "source_type": "system_suggested", "calculation_reason": ""}
         ]
     }
-    req_id = client.post(f"/api/incidents/{inc_id}/relief-requests", json=req_payload).json()["id"]
+    req_id = seeded_client.post(f"/api/incidents/{inc_id}/relief-requests", json=req_payload, headers=admin_headers).json()["id"]
     
-    res = client.post(f"/api/relief-requests/{req_id}/recommendations")
+    res = seeded_client.post(f"/api/relief-requests/{req_id}/recommendations", headers=admin_headers)
     assert res.status_code == 200
     data = res.json()
     assert len(data["single_source_recommendations"]) > 0
     top_rec = data["single_source_recommendations"][0]
     assert top_rec["stock_coverage_percentage"] == 100.0
 
-def test_split_allocation_works():
+def test_split_allocation_works(seeded_client, admin_headers):
     # Request massive amount of food to force split
     inc_payload = {
         "title": "Split Test", "description": "Test", "incident_type": "fire",
         "latitude": 11.0, "longitude": 76.95, "severity": "medium",
         "affected_people": 0, "injured_people": 0, "vulnerable_people": 0
     }
-    inc_id = client.post("/api/incidents/", json=inc_payload).json()["id"]
+    inc_id = seeded_client.post("/api/incidents/", json=inc_payload, headers=admin_headers).json()["id"]
     req_payload = {
         "support_duration_days": 1,
         "total_people": 0,
@@ -948,15 +938,15 @@ def test_split_allocation_works():
             {"item_type": "food_packet", "requested_quantity": 6000, "source_type": "system_suggested", "calculation_reason": ""}
         ]
     }
-    req_id = client.post(f"/api/incidents/{inc_id}/relief-requests", json=req_payload).json()["id"]
+    req_id = seeded_client.post(f"/api/incidents/{inc_id}/relief-requests", json=req_payload, headers=admin_headers).json()["id"]
     
-    res = client.post(f"/api/relief-requests/{req_id}/recommendations")
+    res = seeded_client.post(f"/api/relief-requests/{req_id}/recommendations", headers=admin_headers)
     assert res.status_code == 200
     data = res.json()
     assert data["split_allocation_plan"] is not None
     assert data["split_allocation_plan"]["is_split"] == True
 
-def test_dispatch_approval_succeeds():
+def test_dispatch_approval_succeeds(seeded_client, admin_headers):
     # Approve dispatch
     req_payload = {
         "support_duration_days": 1,
@@ -965,7 +955,7 @@ def test_dispatch_approval_succeeds():
             {"item_type": "baby_supply_kit", "requested_quantity": 5, "source_type": "system_suggested", "calculation_reason": ""}
         ]
     }
-    req_id = client.post("/api/incidents/1/relief-requests", json=req_payload).json()["id"]
+    req_id = seeded_client.post("/api/incidents/1/relief-requests", json=req_payload, headers=admin_headers).json()["id"]
     
     dispatch_payload = {
         "warehouse_id": 1,
@@ -974,24 +964,24 @@ def test_dispatch_approval_succeeds():
         "recommendation_score": 90.0,
         "explanation": "Test"
     }
-    res = client.post(f"/api/relief-requests/{req_id}/approve-dispatch", json=dispatch_payload)
+    res = seeded_client.post(f"/api/relief-requests/{req_id}/approve-dispatch", json=dispatch_payload, headers=admin_headers)
     assert res.status_code == 200
     d_id = res.json()["id"]
     
     # Check inventory reservation
-    inv = client.get("/api/warehouses/1/inventory").json()
+    inv = seeded_client.get("/api/warehouses/1/inventory", headers=admin_headers).json()
     baby_kit = next(i for i in inv if i["item_type"] == "baby_supply_kit")
     assert baby_kit["quantity_reserved"] >= 5 # Might be more if run multiple times
 
     # Transition to dispatched
-    res = client.patch(f"/api/relief-dispatches/{d_id}/status?status=dispatched")
+    res = seeded_client.patch(f"/api/relief-dispatches/{d_id}/status?status=dispatched", headers=admin_headers)
     assert res.status_code == 200
     
     # Transition to delivered
-    res = client.patch(f"/api/relief-dispatches/{d_id}/status?status=delivered")
+    res = seeded_client.patch(f"/api/relief-dispatches/{d_id}/status?status=delivered", headers=admin_headers)
     assert res.status_code == 200
 
-def test_cancelled_dispatch_releases_stock():
+def test_cancelled_dispatch_releases_stock(seeded_client, admin_headers):
     req_payload = {
         "support_duration_days": 1,
         "total_people": 0,
@@ -999,9 +989,9 @@ def test_cancelled_dispatch_releases_stock():
             {"item_type": "emergency_light", "requested_quantity": 2, "source_type": "system_suggested", "calculation_reason": ""}
         ]
     }
-    req_id = client.post("/api/incidents/1/relief-requests", json=req_payload).json()["id"]
+    req_id = seeded_client.post("/api/incidents/1/relief-requests", json=req_payload, headers=admin_headers).json()["id"]
     
-    inv_before = client.get("/api/warehouses/1/inventory").json()
+    inv_before = seeded_client.get("/api/warehouses/1/inventory", headers=admin_headers).json()
     light_before = next(i for i in inv_before if i["item_type"] == "emergency_light")
     
     dispatch_payload = {
@@ -1011,16 +1001,16 @@ def test_cancelled_dispatch_releases_stock():
         "recommendation_score": 90.0,
         "explanation": "Test"
     }
-    d_id = client.post(f"/api/relief-requests/{req_id}/approve-dispatch", json=dispatch_payload).json()["id"]
+    d_id = seeded_client.post(f"/api/relief-requests/{req_id}/approve-dispatch", json=dispatch_payload, headers=admin_headers).json()["id"]
     
-    client.patch(f"/api/relief-dispatches/{d_id}/status?status=cancelled")
+    seeded_client.patch(f"/api/relief-dispatches/{d_id}/status?status=cancelled", headers=admin_headers)
     
-    inv_after = client.get("/api/warehouses/1/inventory").json()
+    inv_after = seeded_client.get("/api/warehouses/1/inventory", headers=admin_headers).json()
     light_after = next(i for i in inv_after if i["item_type"] == "emergency_light")
     
     assert light_before["quantity_reserved"] == light_after["quantity_reserved"]
 
-def test_negative_stock_rejected():
+def test_negative_stock_rejected(seeded_client, admin_headers):
     req_payload = {
         "support_duration_days": 1,
         "total_people": 0,
@@ -1028,7 +1018,7 @@ def test_negative_stock_rejected():
             {"item_type": "emergency_light", "requested_quantity": 999999, "source_type": "system_suggested", "calculation_reason": ""}
         ]
     }
-    req_id = client.post("/api/incidents/1/relief-requests", json=req_payload).json()["id"]
+    req_id = seeded_client.post("/api/incidents/1/relief-requests", json=req_payload, headers=admin_headers).json()["id"]
     
     dispatch_payload = {
         "warehouse_id": 1,
@@ -1037,12 +1027,12 @@ def test_negative_stock_rejected():
         "recommendation_score": 90.0,
         "explanation": "Test"
     }
-    res = client.post(f"/api/relief-requests/{req_id}/approve-dispatch", json=dispatch_payload)
+    res = seeded_client.post(f"/api/relief-requests/{req_id}/approve-dispatch", json=dispatch_payload, headers=admin_headers)
     assert res.status_code == 400
     assert "Insufficient stock" in res.json()["detail"]
 
-def test_dashboard_metrics():
-    res = client.get("/api/relief/dashboard-summary")
+def test_dashboard_metrics(seeded_client, admin_headers):
+    res = seeded_client.get("/api/relief/dashboard-summary", headers=admin_headers)
     assert res.status_code == 200
     data = res.json()
     assert "active_requests" in data
@@ -1051,8 +1041,8 @@ def test_dashboard_metrics():
     assert "low_stock_items" in data
     assert data["warehouses_active"] > 0
 
-def test_inventory_alerts():
-    res = client.get("/api/relief/inventory-alerts")
+def test_inventory_alerts(seeded_client, admin_headers):
+    res = seeded_client.get("/api/relief/inventory-alerts", headers=admin_headers)
     assert res.status_code == 200
     data = res.json()
     assert len(data) >= 0

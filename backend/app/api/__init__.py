@@ -5,12 +5,19 @@ from datetime import datetime, timezone
 
 from app.database import get_db
 from app import schemas, models
+from app.core.security import (
+    get_current_active_user,
+    require_role,
+    require_permission,
+    UserRole,
+    User,
+)
 from app.services import (
-    get_dashboard_summary, 
-    create_incident, 
-    get_incidents, 
-    get_incident, 
-    get_teams, 
+    get_dashboard_summary,
+    create_incident,
+    get_incidents,
+    get_incident,
+    get_teams,
     get_team,
     process_priority_calculation,
     get_recommendations_for_incident,
@@ -31,40 +38,40 @@ def health_check():
     return {"status": "ok", "application": "X-DMRA Rescue"}
 
 @router.get("/dashboard/summary", response_model=schemas.DashboardSummary)
-def get_summary(db: Session = Depends(get_db)):
+def get_summary(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     return get_dashboard_summary(db)
 
 @router.get("/incidents", response_model=List[schemas.Incident])
-def read_incidents(db: Session = Depends(get_db)):
+def read_incidents(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     return get_incidents(db)
 
 @router.post("/incidents", response_model=schemas.Incident, status_code=status.HTTP_201_CREATED)
-def add_incident(incident: schemas.IncidentCreate, db: Session = Depends(get_db)):
+def add_incident(incident: schemas.IncidentCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer)), db: Session = Depends(get_db)):
     return create_incident(db, incident)
 
 @router.get("/incidents/{incident_id}", response_model=schemas.Incident)
-def read_incident(incident_id: int, db: Session = Depends(get_db)):
+def read_incident(incident_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     db_incident = get_incident(db, incident_id)
     if not db_incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     return db_incident
 
 @router.post("/incidents/{incident_id}/calculate-priority", response_model=schemas.PriorityResult)
-def calculate_priority(incident_id: int, db: Session = Depends(get_db)):
+def calculate_priority(incident_id: int, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer)), db: Session = Depends(get_db)):
     result = process_priority_calculation(db, incident_id)
     if not result:
         raise HTTPException(status_code=404, detail="Incident not found")
     return result
 
 @router.get("/incidents/{incident_id}/team-recommendations", response_model=List[schemas.TeamRecommendation])
-def read_recommendations(incident_id: int, db: Session = Depends(get_db)):
+def read_recommendations(incident_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     recs = get_recommendations_for_incident(db, incident_id)
     if recs is None:
         raise HTTPException(status_code=404, detail="Incident not found")
     return recs
 
 @router.post("/incidents/{incident_id}/allocations", response_model=schemas.AllocationResponse, status_code=status.HTTP_201_CREATED)
-def allocate_team(incident_id: int, req: schemas.AllocationCreate, db: Session = Depends(get_db)):
+def allocate_team(incident_id: int, req: schemas.AllocationCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.rescue_officer)), db: Session = Depends(get_db)):
     try:
         allocation = create_allocation(db, incident_id, req)
         return allocation
@@ -74,25 +81,25 @@ def allocate_team(incident_id: int, req: schemas.AllocationCreate, db: Session =
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/incidents/{incident_id}/allocations", response_model=List[schemas.AllocationResponse])
-def read_incident_allocations(incident_id: int, db: Session = Depends(get_db)):
+def read_incident_allocations(incident_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     db_incident = get_incident(db, incident_id)
     if not db_incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     return get_allocations_for_incident(db, incident_id)
 
 @router.get("/allocations/{allocation_id}", response_model=schemas.AllocationResponse)
-def read_allocation(allocation_id: int, db: Session = Depends(get_db)):
+def read_allocation(allocation_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     allocation = get_allocation(db, allocation_id)
     if not allocation:
         raise HTTPException(status_code=404, detail="Allocation not found")
     return allocation
 
 @router.get("/teams", response_model=List[schemas.RescueTeam])
-def read_teams(db: Session = Depends(get_db)):
+def read_teams(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     return get_teams(db)
 
 @router.get("/teams/{team_id}", response_model=schemas.RescueTeam)
-def read_team(team_id: int, db: Session = Depends(get_db)):
+def read_team(team_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     db_team = get_team(db, team_id)
     if not db_team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -101,12 +108,12 @@ def read_team(team_id: int, db: Session = Depends(get_db)):
 # --- ML Endpoints Phase 3 ---
 
 @router.get("/ml/model-info", response_model=schemas.ModelInfoResponse)
-def get_model_info():
+def get_model_info(current_user: User = Depends(get_current_active_user)):
     info = priority_predictor.get_model_info()
     return info
 
 @router.post("/ml/retrain")
-def retrain_model():
+def retrain_model(current_user: User = Depends(require_role(UserRole.admin))):
     # Only for development
     try:
         from ml.training.train_priority_model import train_models
@@ -116,7 +123,7 @@ def retrain_model():
         raise HTTPException(status_code=500, detail=f"Retraining failed: {str(e)}")
 
 @router.post("/incidents/{incident_id}/predict-priority-ml", response_model=schemas.PriorityComparisonResponse)
-def predict_incident_priority_ml(incident_id: int, db: Session = Depends(get_db)):
+def predict_incident_priority_ml(incident_id: int, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer)), db: Session = Depends(get_db)):
     incident = db.query(models.Incident).filter(models.Incident.id == incident_id).first()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -167,7 +174,7 @@ async def search_locations(q: str):
     return results
 
 @router.patch("/incidents/{incident_id}/location", response_model=schemas.Incident)
-def update_incident_location(incident_id: int, req: schemas.IncidentLocationUpdate, db: Session = Depends(get_db)):
+def update_incident_location(incident_id: int, req: schemas.IncidentLocationUpdate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer)), db: Session = Depends(get_db)):
     incident = db.query(models.Incident).filter(models.Incident.id == incident_id).first()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -188,7 +195,7 @@ def update_incident_location(incident_id: int, req: schemas.IncidentLocationUpda
     return incident
 
 @router.patch("/teams/{team_id}/location", response_model=schemas.RescueTeam)
-def update_team_location(team_id: int, req: schemas.TeamLocationUpdate, db: Session = Depends(get_db)):
+def update_team_location(team_id: int, req: schemas.TeamLocationUpdate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.rescue_officer)), db: Session = Depends(get_db)):
     team = db.query(models.RescueTeam).filter(models.RescueTeam.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -202,7 +209,7 @@ def update_team_location(team_id: int, req: schemas.TeamLocationUpdate, db: Sess
     return team
 
 @router.get("/map/overview", response_model=schemas.MapOverviewResponse)
-def get_map_overview(db: Session = Depends(get_db)):
+def get_map_overview(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     incidents = db.query(models.Incident).filter(
         models.Incident.status.in_([
             models.IncidentStatus.reported,
@@ -219,22 +226,22 @@ def get_map_overview(db: Session = Depends(get_db)):
 # ================= Phase 5 Reallocation Endpoints =================
 
 @router.post("/incidents/{incident_id}/evaluate-reallocation", response_model=schemas.ReallocationRecommendationResult)
-def evaluate_reallocation(incident_id: int, req: schemas.ReallocationEvaluateRequest, db: Session = Depends(get_db)):
+def evaluate_reallocation(incident_id: int, req: schemas.ReallocationEvaluateRequest, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer)), db: Session = Depends(get_db)):
     return reallocation_service.evaluate_reallocation(db, incident_id, req.trigger_type, req.trigger_description)
 
 @router.post("/incidents/{incident_id}/reallocate", response_model=schemas.AllocationResponse)
-def approve_reallocation(incident_id: int, req: schemas.ReallocationApprovalRequest, db: Session = Depends(get_db)):
+def approve_reallocation(incident_id: int, req: schemas.ReallocationApprovalRequest, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.rescue_officer)), db: Session = Depends(get_db)):
     return reallocation_service.approve_reallocation(
         db, incident_id, req.replacement_team_id, req.trigger_type, req.reason
     )
 
 @router.get("/incidents/{incident_id}/reallocation-history", response_model=List[schemas.ReallocationEventResponse])
-def get_reallocation_history(incident_id: int, db: Session = Depends(get_db)):
+def get_reallocation_history(incident_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     events = db.query(models.ReallocationEvent).filter(models.ReallocationEvent.incident_id == incident_id).order_by(models.ReallocationEvent.created_at.desc()).all()
     return events
 
 @router.post("/incidents/{incident_id}/route-conditions", response_model=schemas.RouteConditionCreate)
-def create_route_condition(incident_id: int, req: schemas.RouteConditionCreate, db: Session = Depends(get_db)):
+def create_route_condition(incident_id: int, req: schemas.RouteConditionCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.rescue_officer)), db: Session = Depends(get_db)):
     rc = db.query(models.RouteCondition).filter(
         models.RouteCondition.incident_id == incident_id,
         models.RouteCondition.rescue_team_id == req.rescue_team_id
@@ -259,7 +266,7 @@ def create_route_condition(incident_id: int, req: schemas.RouteConditionCreate, 
     return req
 
 @router.patch("/route-conditions/{route_condition_id}")
-def update_route_condition(route_condition_id: int, req: schemas.RouteConditionCreate, db: Session = Depends(get_db)):
+def update_route_condition(route_condition_id: int, req: schemas.RouteConditionCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.rescue_officer)), db: Session = Depends(get_db)):
     rc = db.query(models.RouteCondition).filter(models.RouteCondition.id == route_condition_id).first()
     if not rc:
         raise HTTPException(status_code=404, detail="Route condition not found")
@@ -271,7 +278,7 @@ def update_route_condition(route_condition_id: int, req: schemas.RouteConditionC
     return {"status": "ok"}
 
 @router.patch("/teams/{team_id}/operational-status", response_model=schemas.RescueTeam)
-def update_team_operational_status(team_id: int, req: schemas.OperationalStatusUpdate, db: Session = Depends(get_db)):
+def update_team_operational_status(team_id: int, req: schemas.OperationalStatusUpdate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.rescue_officer)), db: Session = Depends(get_db)):
     team = db.query(models.RescueTeam).filter(models.RescueTeam.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -301,11 +308,11 @@ from app.services.relief_allocation_service import evaluate_relief_allocation
 from app.services.inventory_service import approve_dispatch, transition_dispatch_status
 
 @router.get("/warehouses", response_model=List[WarehouseResponse])
-def get_warehouses(db: Session = Depends(get_db)):
+def get_warehouses(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     return db.query(Warehouse).all()
 
 @router.post("/warehouses", response_model=WarehouseResponse, status_code=status.HTTP_201_CREATED)
-def create_warehouse(wh: WarehouseCreate, db: Session = Depends(get_db)):
+def create_warehouse(wh: WarehouseCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.relief_officer)), db: Session = Depends(get_db)):
     new_wh = Warehouse(**wh.model_dump())
     db.add(new_wh)
     db.commit()
@@ -313,14 +320,14 @@ def create_warehouse(wh: WarehouseCreate, db: Session = Depends(get_db)):
     return new_wh
 
 @router.get("/warehouses/{warehouse_id}", response_model=WarehouseResponse)
-def get_warehouse(warehouse_id: int, db: Session = Depends(get_db)):
+def get_warehouse(warehouse_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     wh = db.query(Warehouse).filter(Warehouse.id == warehouse_id).first()
     if not wh:
         raise HTTPException(status_code=404, detail="Warehouse not found")
     return wh
 
 @router.patch("/warehouses/{warehouse_id}", response_model=WarehouseResponse)
-def update_warehouse(warehouse_id: int, payload: dict, db: Session = Depends(get_db)):
+def update_warehouse(warehouse_id: int, payload: dict, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.relief_officer)), db: Session = Depends(get_db)):
     wh = db.query(Warehouse).filter(Warehouse.id == warehouse_id).first()
     if not wh:
         raise HTTPException(status_code=404, detail="Warehouse not found")
@@ -331,11 +338,11 @@ def update_warehouse(warehouse_id: int, payload: dict, db: Session = Depends(get
     return wh
 
 @router.get("/warehouses/{warehouse_id}/inventory", response_model=List[ReliefInventoryResponse])
-def get_warehouse_inventory(warehouse_id: int, db: Session = Depends(get_db)):
+def get_warehouse_inventory(warehouse_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     return db.query(ReliefInventory).filter(ReliefInventory.warehouse_id == warehouse_id).all()
 
 @router.post("/warehouses/{warehouse_id}/inventory", response_model=ReliefInventoryResponse, status_code=status.HTTP_201_CREATED)
-def create_inventory(warehouse_id: int, payload: ReliefInventoryCreate, db: Session = Depends(get_db)):
+def create_inventory(warehouse_id: int, payload: ReliefInventoryCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.relief_officer)), db: Session = Depends(get_db)):
     inv = ReliefInventory(**payload.model_dump())
     inv.warehouse_id = warehouse_id
     db.add(inv)
@@ -344,7 +351,7 @@ def create_inventory(warehouse_id: int, payload: ReliefInventoryCreate, db: Sess
     return inv
 
 @router.patch("/inventory/{inventory_id}", response_model=ReliefInventoryResponse)
-def update_inventory(inventory_id: int, payload: dict, db: Session = Depends(get_db)):
+def update_inventory(inventory_id: int, payload: dict, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.relief_officer)), db: Session = Depends(get_db)):
     inv = db.query(ReliefInventory).filter(ReliefInventory.id == inventory_id).first()
     if not inv:
         raise HTTPException(status_code=404, detail="Inventory not found")
@@ -355,11 +362,11 @@ def update_inventory(inventory_id: int, payload: dict, db: Session = Depends(get
     return inv
 
 @router.get("/delivery-vehicles", response_model=List[DeliveryVehicleResponse])
-def get_vehicles(db: Session = Depends(get_db)):
+def get_vehicles(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     return db.query(DeliveryVehicle).all()
 
 @router.post("/delivery-vehicles", response_model=DeliveryVehicleResponse, status_code=status.HTTP_201_CREATED)
-def create_vehicle(payload: DeliveryVehicleCreate, db: Session = Depends(get_db)):
+def create_vehicle(payload: DeliveryVehicleCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.relief_officer)), db: Session = Depends(get_db)):
     v = DeliveryVehicle(**payload.model_dump())
     db.add(v)
     db.commit()
@@ -367,7 +374,7 @@ def create_vehicle(payload: DeliveryVehicleCreate, db: Session = Depends(get_db)
     return v
 
 @router.patch("/delivery-vehicles/{vehicle_id}", response_model=DeliveryVehicleResponse)
-def update_vehicle(vehicle_id: int, payload: dict, db: Session = Depends(get_db)):
+def update_vehicle(vehicle_id: int, payload: dict, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.relief_officer)), db: Session = Depends(get_db)):
     v = db.query(DeliveryVehicle).filter(DeliveryVehicle.id == vehicle_id).first()
     if not v:
         raise HTTPException(status_code=404, detail="Vehicle not found")
@@ -378,14 +385,14 @@ def update_vehicle(vehicle_id: int, payload: dict, db: Session = Depends(get_db)
     return v
 
 @router.post("/incidents/{incident_id}/relief-demand/suggest", response_model=ReliefDemandSuggestion)
-def suggest_relief_demand(incident_id: int, support_duration_days: int = 1, db: Session = Depends(get_db)):
+def suggest_relief_demand(incident_id: int, support_duration_days: int = 1, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     incident = db.query(Incident).filter(Incident.id == incident_id).first()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     return generate_relief_demand(incident, support_duration_days)
 
 @router.post("/incidents/{incident_id}/relief-requests", response_model=ReliefRequestResponse, status_code=status.HTTP_201_CREATED)
-def create_relief_request(incident_id: int, payload: ReliefRequestCreate, db: Session = Depends(get_db)):
+def create_relief_request(incident_id: int, payload: ReliefRequestCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.relief_officer)), db: Session = Depends(get_db)):
     incident = db.query(Incident).filter(Incident.id == incident_id).first()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -419,14 +426,14 @@ def create_relief_request(incident_id: int, payload: ReliefRequestCreate, db: Se
     return req
 
 @router.get("/incidents/{incident_id}/relief-requests", response_model=List[ReliefRequestResponse])
-def get_relief_requests(incident_id: int, db: Session = Depends(get_db)):
+def get_relief_requests(incident_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     reqs = db.query(ReliefRequest).filter(ReliefRequest.incident_id == incident_id).all()
     for req in reqs:
         req.items = db.query(ReliefRequestItem).filter(ReliefRequestItem.relief_request_id == req.id).all()
     return reqs
 
 @router.get("/relief-requests/{request_id}", response_model=ReliefRequestResponse)
-def get_relief_request(request_id: int, db: Session = Depends(get_db)):
+def get_relief_request(request_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     req = db.query(ReliefRequest).filter(ReliefRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Relief request not found")
@@ -434,7 +441,7 @@ def get_relief_request(request_id: int, db: Session = Depends(get_db)):
     return req
 
 @router.patch("/relief-requests/{request_id}", response_model=ReliefRequestResponse)
-def update_relief_request(request_id: int, payload: dict, db: Session = Depends(get_db)):
+def update_relief_request(request_id: int, payload: dict, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.relief_officer)), db: Session = Depends(get_db)):
     req = db.query(ReliefRequest).filter(ReliefRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Relief request not found")
@@ -446,11 +453,11 @@ def update_relief_request(request_id: int, payload: dict, db: Session = Depends(
     return req
 
 @router.post("/relief-requests/{request_id}/recommendations", response_model=ReliefAllocationEvaluationResponse)
-def get_relief_recommendations(request_id: int, db: Session = Depends(get_db)):
+def get_relief_recommendations(request_id: int, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.viewer)), db: Session = Depends(get_db)):
     return evaluate_relief_allocation(db, request_id)
 
 @router.post("/relief-requests/{request_id}/approve-dispatch", response_model=ReliefDispatchResponse)
-def create_dispatch(request_id: int, payload: ReliefDispatchCreate, db: Session = Depends(get_db)):
+def create_dispatch(request_id: int, payload: ReliefDispatchCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.relief_officer)), db: Session = Depends(get_db)):
     # Inventory reservation is handled in the service
     req = db.query(ReliefRequest).filter(ReliefRequest.id == request_id).first()
     if not req:
@@ -475,14 +482,14 @@ def create_dispatch(request_id: int, payload: ReliefDispatchCreate, db: Session 
     return dispatch
 
 @router.get("/relief-requests/{request_id}/dispatches", response_model=List[ReliefDispatchResponse])
-def get_request_dispatches(request_id: int, db: Session = Depends(get_db)):
+def get_request_dispatches(request_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     dispatches = db.query(ReliefDispatch).filter(ReliefDispatch.relief_request_id == request_id).all()
     for d in dispatches:
         d.items = db.query(ReliefDispatchItem).filter(ReliefDispatchItem.relief_dispatch_id == d.id).all()
     return dispatches
 
 @router.patch("/relief-dispatches/{dispatch_id}/status", response_model=ReliefDispatchResponse)
-def update_dispatch_status(dispatch_id: int, status: str, db: Session = Depends(get_db)):
+def update_dispatch_status(dispatch_id: int, status: str, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.relief_officer)), db: Session = Depends(get_db)):
     try:
         new_status = DispatchStatus(status)
     except ValueError:
@@ -493,7 +500,7 @@ def update_dispatch_status(dispatch_id: int, status: str, db: Session = Depends(
     return dispatch
 
 @router.post("/incidents/{incident_id}/warehouse-route-conditions")
-def create_warehouse_route_condition(incident_id: int, condition: RouteConditionCreate, db: Session = Depends(get_db)):
+def create_warehouse_route_condition(incident_id: int, condition: RouteConditionCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.rescue_officer)), db: Session = Depends(get_db)):
     incident = db.query(Incident).filter(Incident.id == incident_id).first()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -524,7 +531,7 @@ def create_warehouse_route_condition(incident_id: int, condition: RouteCondition
     return rc
 
 @router.get("/relief/dashboard-summary")
-def get_relief_dashboard_summary(db: Session = Depends(get_db)):
+def get_relief_dashboard_summary(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     active_requests = db.query(ReliefRequest).filter(ReliefRequest.status.in_([ReliefRequestStatus.confirmed, ReliefRequestStatus.partially_allocated])).count()
     dispatches_in_progress = db.query(ReliefDispatch).filter(ReliefDispatch.status.in_([DispatchStatus.approved, DispatchStatus.preparing, DispatchStatus.dispatched])).count()
     warehouses_active = db.query(Warehouse).filter(Warehouse.operating_status == WarehouseOperatingStatus.active).count()
@@ -540,7 +547,7 @@ def get_relief_dashboard_summary(db: Session = Depends(get_db)):
     }
 
 @router.get("/relief/inventory-alerts")
-def get_inventory_alerts(db: Session = Depends(get_db)):
+def get_inventory_alerts(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     low_stock = db.query(ReliefInventory).filter(ReliefInventory.quantity_available <= ReliefInventory.reorder_level).all()
     res = []
     for inv in low_stock:
@@ -569,11 +576,11 @@ from app.schemas import (
 from app.services.shelter_allocation_service import evaluate_shelter_allocation
 
 @router.get("/shelters", response_model=List[EmergencyShelterResponse])
-def get_shelters(db: Session = Depends(get_db)):
+def get_shelters(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     return db.query(EmergencyShelter).all()
 
 @router.post("/shelters", response_model=EmergencyShelterResponse, status_code=status.HTTP_201_CREATED)
-def create_shelter(shelter: EmergencyShelterCreate, db: Session = Depends(get_db)):
+def create_shelter(shelter: EmergencyShelterCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.shelter_officer)), db: Session = Depends(get_db)):
     db_shelter = EmergencyShelter(**shelter.model_dump())
     db.add(db_shelter)
     db.commit()
@@ -581,14 +588,14 @@ def create_shelter(shelter: EmergencyShelterCreate, db: Session = Depends(get_db
     return db_shelter
 
 @router.get("/shelters/{shelter_id}", response_model=EmergencyShelterResponse)
-def get_shelter(shelter_id: int, db: Session = Depends(get_db)):
+def get_shelter(shelter_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     db_shelter = db.query(EmergencyShelter).filter(EmergencyShelter.id == shelter_id).first()
     if not db_shelter:
         raise HTTPException(status_code=404, detail="Shelter not found")
     return db_shelter
 
 @router.patch("/shelters/{shelter_id}", response_model=EmergencyShelterResponse)
-def update_shelter(shelter_id: int, updates: EmergencyShelterUpdate, db: Session = Depends(get_db)):
+def update_shelter(shelter_id: int, updates: EmergencyShelterUpdate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.shelter_officer)), db: Session = Depends(get_db)):
     db_shelter = db.query(EmergencyShelter).filter(EmergencyShelter.id == shelter_id).first()
     if not db_shelter:
         raise HTTPException(status_code=404, detail="Shelter not found")
@@ -600,7 +607,7 @@ def update_shelter(shelter_id: int, updates: EmergencyShelterUpdate, db: Session
     return db_shelter
 
 @router.post("/incidents/{incident_id}/shelter-requests", response_model=ShelterRequestResponse, status_code=status.HTTP_201_CREATED)
-def create_shelter_request(incident_id: int, request: ShelterRequestCreate, db: Session = Depends(get_db)):
+def create_shelter_request(incident_id: int, request: ShelterRequestCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.shelter_officer)), db: Session = Depends(get_db)):
     incident = db.query(Incident).filter(Incident.id == incident_id).first()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -611,18 +618,18 @@ def create_shelter_request(incident_id: int, request: ShelterRequestCreate, db: 
     return db_req
 
 @router.get("/incidents/{incident_id}/shelter-requests", response_model=List[ShelterRequestResponse])
-def get_incident_shelter_requests(incident_id: int, db: Session = Depends(get_db)):
+def get_incident_shelter_requests(incident_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     return db.query(ShelterRequest).filter(ShelterRequest.incident_id == incident_id).all()
 
 @router.get("/shelter-requests/{request_id}", response_model=ShelterRequestResponse)
-def get_shelter_request(request_id: int, db: Session = Depends(get_db)):
+def get_shelter_request(request_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     req = db.query(ShelterRequest).filter(ShelterRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Shelter Request not found")
     return req
 
 @router.patch("/shelter-requests/{request_id}", response_model=ShelterRequestResponse)
-def update_shelter_request(request_id: int, updates: ShelterRequestUpdate, db: Session = Depends(get_db)):
+def update_shelter_request(request_id: int, updates: ShelterRequestUpdate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.shelter_officer)), db: Session = Depends(get_db)):
     req = db.query(ShelterRequest).filter(ShelterRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Shelter Request not found")
@@ -634,14 +641,14 @@ def update_shelter_request(request_id: int, updates: ShelterRequestUpdate, db: S
     return req
 
 @router.post("/shelter-requests/{request_id}/recommendations", response_model=ShelterAllocationEvaluationResponse)
-def get_shelter_recommendations(request_id: int, db: Session = Depends(get_db)):
+def get_shelter_recommendations(request_id: int, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.viewer)), db: Session = Depends(get_db)):
     req = db.query(ShelterRequest).filter(ShelterRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Shelter Request not found")
     return evaluate_shelter_allocation(db, request_id)
 
 @router.post("/shelter-requests/{request_id}/approve-reservations", response_model=List[ShelterReservationResponse], status_code=status.HTTP_201_CREATED)
-def approve_shelter_reservations(request_id: int, reservations: List[ShelterReservationCreate], db: Session = Depends(get_db)):
+def approve_shelter_reservations(request_id: int, reservations: List[ShelterReservationCreate], current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.shelter_officer)), db: Session = Depends(get_db)):
     req = db.query(ShelterRequest).filter(ShelterRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Shelter Request not found")
@@ -702,11 +709,11 @@ def approve_shelter_reservations(request_id: int, reservations: List[ShelterRese
     return created_reservations
 
 @router.get("/shelter-requests/{request_id}/reservations", response_model=List[ShelterReservationResponse])
-def get_shelter_reservations(request_id: int, db: Session = Depends(get_db)):
+def get_shelter_reservations(request_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     return db.query(ShelterReservation).filter(ShelterReservation.shelter_request_id == request_id).all()
 
 @router.patch("/shelter-reservations/{reservation_id}/status", response_model=ShelterReservationResponse)
-def update_shelter_reservation_status(reservation_id: int, status_update: dict, db: Session = Depends(get_db)):
+def update_shelter_reservation_status(reservation_id: int, status_update: dict, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.shelter_officer)), db: Session = Depends(get_db)):
     new_status_str = status_update.get("status")
     if not new_status_str:
         raise HTTPException(status_code=400, detail="status is required")
@@ -790,7 +797,7 @@ def update_shelter_reservation_status(reservation_id: int, status_update: dict, 
     return res
 
 @router.post("/incidents/{incident_id}/shelter-route-conditions", response_model=ShelterRouteConditionResponse)
-def create_shelter_route_condition(incident_id: int, condition: ShelterRouteConditionCreate, db: Session = Depends(get_db)):
+def create_shelter_route_condition(incident_id: int, condition: ShelterRouteConditionCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.shelter_officer)), db: Session = Depends(get_db)):
     inc = db.query(Incident).filter(Incident.id == incident_id).first()
     if not inc:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -820,7 +827,7 @@ def create_shelter_route_condition(incident_id: int, condition: ShelterRouteCond
     return rc
 
 @router.get("/shelter/dashboard-summary", response_model=ShelterDashboardSummary)
-def get_shelter_dashboard_summary(db: Session = Depends(get_db)):
+def get_shelter_dashboard_summary(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     shelters = db.query(EmergencyShelter).all()
     total = len(shelters)
     open_s = sum(1 for s in shelters if s.operating_status == ShelterOperatingStatus.open)
@@ -850,7 +857,7 @@ def get_shelter_dashboard_summary(db: Session = Depends(get_db)):
 
 
 @router.post("/shelters", response_model=schemas.EmergencyShelterResponse, status_code=status.HTTP_201_CREATED)
-def create_shelter(shelter: schemas.EmergencyShelterCreate, db: Session = Depends(get_db)):
+def create_shelter(shelter: schemas.EmergencyShelterCreate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.shelter_officer)), db: Session = Depends(get_db)):
     db_shelter = models.EmergencyShelter(**shelter.model_dump())
     db.add(db_shelter)
     db.commit()
@@ -858,7 +865,7 @@ def create_shelter(shelter: schemas.EmergencyShelterCreate, db: Session = Depend
     return db_shelter
 
 @router.patch("/shelters/{shelter_id}/operational-status", response_model=schemas.EmergencyShelterResponse)
-def update_shelter_op_status(shelter_id: int, status_update: schemas.ShelterOperationalStatusUpdate, db: Session = Depends(get_db)):
+def update_shelter_op_status(shelter_id: int, status_update: schemas.ShelterOperationalStatusUpdate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.shelter_officer)), db: Session = Depends(get_db)):
     shelter = db.query(models.EmergencyShelter).filter(models.EmergencyShelter.id == shelter_id).first()
     if not shelter:
         raise HTTPException(status_code=404, detail="Shelter not found")
@@ -868,7 +875,7 @@ def update_shelter_op_status(shelter_id: int, status_update: schemas.ShelterOper
     return shelter
 
 @router.patch("/shelters/{shelter_id}/location", response_model=schemas.EmergencyShelterResponse)
-def update_shelter_location(shelter_id: int, loc: schemas.ShelterLocationUpdate, db: Session = Depends(get_db)):
+def update_shelter_location(shelter_id: int, loc: schemas.ShelterLocationUpdate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.shelter_officer)), db: Session = Depends(get_db)):
     shelter = db.query(models.EmergencyShelter).filter(models.EmergencyShelter.id == shelter_id).first()
     if not shelter:
         raise HTTPException(status_code=404, detail="Shelter not found")
@@ -879,11 +886,11 @@ def update_shelter_location(shelter_id: int, loc: schemas.ShelterLocationUpdate,
     return shelter
 
 @router.get("/shelters/{shelter_id}/capacity-history", response_model=List[schemas.ShelterCapacityMovementResponse])
-def get_shelter_capacity_history(shelter_id: int, db: Session = Depends(get_db)):
+def get_shelter_capacity_history(shelter_id: int, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     return db.query(models.ShelterCapacityMovement).filter(models.ShelterCapacityMovement.shelter_id == shelter_id).order_by(models.ShelterCapacityMovement.created_at.desc()).all()
 
 @router.patch("/shelter-route-conditions/{condition_id}", response_model=schemas.ShelterRouteConditionResponse)
-def update_shelter_route_condition(condition_id: int, updates: schemas.ShelterRouteConditionUpdate, db: Session = Depends(get_db)):
+def update_shelter_route_condition(condition_id: int, updates: schemas.ShelterRouteConditionUpdate, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.shelter_officer)), db: Session = Depends(get_db)):
     rc = db.query(models.ShelterRouteCondition).filter(models.ShelterRouteCondition.id == condition_id).first()
     if not rc:
         raise HTTPException(status_code=404, detail="Route condition not found")
@@ -897,7 +904,7 @@ def update_shelter_route_condition(condition_id: int, updates: schemas.ShelterRo
     return rc
 
 @router.post("/shelter-requests/{request_id}/evaluate-reallocation", response_model=schemas.ShelterReallocationRecommendationResult)
-def evaluate_shelter_reallocation(request_id: int, payload: schemas.ShelterReallocationEvaluateRequest, db: Session = Depends(get_db)):
+def evaluate_shelter_reallocation(request_id: int, payload: schemas.ShelterReallocationEvaluateRequest, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer)), db: Session = Depends(get_db)):
     req = db.query(models.ShelterRequest).filter(models.ShelterRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
@@ -918,7 +925,7 @@ def evaluate_shelter_reallocation(request_id: int, payload: schemas.ShelterReall
     )
 
 @router.post("/shelter-requests/{request_id}/reallocate", response_model=List[schemas.ShelterReservationResponse])
-def execute_shelter_reallocation(request_id: int, payload: schemas.ShelterReallocationApprovalRequest, db: Session = Depends(get_db)):
+def execute_shelter_reallocation(request_id: int, payload: schemas.ShelterReallocationApprovalRequest, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer, UserRole.shelter_officer)), db: Session = Depends(get_db)):
     req = db.query(models.ShelterRequest).filter(models.ShelterRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
@@ -961,7 +968,7 @@ def execute_shelter_reallocation(request_id: int, payload: schemas.ShelterReallo
     return new_reservations
 
 @router.get("/shelter/capacity-alerts", response_model=List[schemas.ShelterCapacityAlertResponse])
-def get_shelter_capacity_alerts(db: Session = Depends(get_db)):
+def get_shelter_capacity_alerts(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     shelters = db.query(models.EmergencyShelter).all()
     alerts = []
     for s in shelters:

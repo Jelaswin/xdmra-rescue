@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from app.core.security import get_current_active_user, require_role, UserRole, User
+
 from evaluation.experiment_runner import run_experiment
 from evaluation.priority_evaluation import run_priority_evaluation
 from evaluation.explainability_evaluation import run_explainability_evaluation
@@ -85,7 +87,7 @@ def _get_experiment_path(experiment_id: str) -> Optional[Path]:
 
 
 @router.get("/algorithms", response_model=List[AlgorithmInfo])
-def list_algorithms():
+def list_algorithms(current_user: User = Depends(get_current_active_user)):
     """List all available evaluation algorithms by module."""
     rescue_algos = list(get_all_rescue_baselines().keys())
     relief_algos = list(get_all_relief_baselines().keys())
@@ -128,7 +130,7 @@ def list_algorithms():
 
 
 @router.get("/scenarios", response_model=List[ScenarioInfo])
-def list_scenarios(module: Optional[str] = None):
+def list_scenarios(module: Optional[str] = None, current_user: User = Depends(get_current_active_user)):
     """List all deterministic evaluation scenarios."""
     scenarios = []
 
@@ -163,7 +165,7 @@ def list_scenarios(module: Optional[str] = None):
 
 
 @router.post("/experiments", response_model=ExperimentRunResponse)
-def create_experiment(req: ExperimentCreateRequest):
+def create_experiment(req: ExperimentCreateRequest, current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer))):
     """Create and run a new evaluation experiment."""
     if req.module not in ("rescue", "relief", "shelter", "priority", "explainability", "performance", "all"):
         raise HTTPException(status_code=400, detail=f"Invalid module: {req.module}")
@@ -233,7 +235,7 @@ def create_experiment(req: ExperimentCreateRequest):
 
 
 @router.get("/experiments")
-def list_experiments():
+def list_experiments(current_user: User = Depends(get_current_active_user)):
     """List all evaluation experiments."""
     experiments = []
     if not EXPERIMENTS_DIR.exists():
@@ -266,7 +268,7 @@ def list_experiments():
 
 
 @router.get("/experiments/{experiment_id}")
-def get_experiment(experiment_id: str):
+def get_experiment(experiment_id: str, current_user: User = Depends(get_current_active_user)):
     """Get experiment metadata."""
     path = _get_experiment_path(experiment_id)
     if not path:
@@ -281,7 +283,7 @@ def get_experiment(experiment_id: str):
 
 
 @router.get("/experiments/{experiment_id}/results")
-def get_experiment_results(experiment_id: str):
+def get_experiment_results(experiment_id: str, current_user: User = Depends(get_current_active_user)):
     """Get experiment results."""
     path = _get_experiment_path(experiment_id)
     if not path:
@@ -304,7 +306,7 @@ def get_experiment_results(experiment_id: str):
 
 
 @router.get("/experiments/{experiment_id}/metrics")
-def get_experiment_metrics(experiment_id: str):
+def get_experiment_metrics(experiment_id: str, current_user: User = Depends(get_current_active_user)):
     """Get aggregated metrics from experiment results."""
     path = _get_experiment_path(experiment_id)
     if not path:
@@ -325,6 +327,7 @@ def get_experiment_metrics(experiment_id: str):
 def get_comparisons(
     module: str = Query(..., description="rescue, relief, or shelter"),
     seed: int = Query(42),
+    current_user: User = Depends(require_role(UserRole.admin, UserRole.command_officer)),
 ):
     """Get baseline comparison results for a module."""
     if module not in ("rescue", "relief", "shelter"):
@@ -343,7 +346,7 @@ def get_comparisons(
 
 
 @router.get("/priority-model")
-def get_priority_model_evaluation():
+def get_priority_model_evaluation(current_user: User = Depends(get_current_active_user)):
     """Get priority model evaluation results."""
     priority_file = EVALUATION_OUTPUT_DIR / "priority_model_evaluation.json"
     if not priority_file.exists():
@@ -356,7 +359,7 @@ def get_priority_model_evaluation():
 
 
 @router.get("/performance")
-def get_performance_benchmark():
+def get_performance_benchmark(current_user: User = Depends(get_current_active_user)):
     """Get performance benchmark results."""
     perf_file = EXPERIMENTS_DIR / "performance_benchmark.json"
     if not perf_file.exists():
@@ -371,7 +374,7 @@ def get_performance_benchmark():
 
 
 @router.get("/explainability")
-def get_explainability_coverage():
+def get_explainability_coverage(current_user: User = Depends(get_current_active_user)):
     """Get explainability coverage results for rescue, relief, and shelter."""
     exp_dir = EXPERIMENTS_DIR / "explainability_latest"
     exp_dir.mkdir(exist_ok=True, parents=True)
@@ -425,6 +428,7 @@ def get_explainability_coverage():
 def export_experiment(
     experiment_id: str,
     format: str = Query("json", description="json, csv, markdown, or latex"),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Export experiment results in the specified format."""
     path = _get_experiment_path(experiment_id)

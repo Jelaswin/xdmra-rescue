@@ -619,7 +619,6 @@ def get_command_map_overview(db: Session) -> Dict[str, Any]:
             {
                 "incident_id": r.incident_id,
                 "shelter_id": r.shelter_id,
-                "rescue_team_id": r.rescue_team_id,
                 "risk_level": r.risk_level.value if hasattr(r.risk_level, 'value') else r.risk_level,
                 "is_blocked": r.is_blocked,
                 "estimated_delay_minutes": r.estimated_delay_minutes
